@@ -18,7 +18,6 @@ export const INITIAL_SETTINGS: AcademySettings = {
 ■ 과제 범위: {pageRange}
 ■ 상세 내용: {content}
 ■ 제출 기한: {dueDate}까지
-■ 선생님 코멘트: {teacherComment}
 
 우리 아이가 성실히 수학 과제를 완수할 수 있도록 가정에서도 따뜻한 격려와 지도 부탁드립니다.
 감사합니다.
@@ -32,7 +31,6 @@ export const INITIAL_SETTINGS: AcademySettings = {
 ■ 집중 범위: {pageRange}
 ■ 핵심 내용: {content}
 ■ 확인 기한: {dueDate}
-■ 내신 지도평: {teacherComment}
 
 수학 내신 1등급을 위해 꼼꼼한 오답 정리 및 취약 유형 복습을 독려해주시기 바랍니다.
 - {academyName} 드림 ({academyPhone})`,
@@ -177,8 +175,6 @@ export const INITIAL_ASSIGNMENTS: AssignmentRecord[] = [
     dueDate: '2026-10-08',
     isAbsent: false,
     status: 'completed',
-    achievementScore: 95,
-    teacherComment: '합동 조건 증명 과정을 꼼꼼히 잘 서술했습니다. 칭찬해주세요!',
     smsSent: true,
     smsSentAt: '2026-10-06T18:30:00Z',
     createdAt: '2026-10-06T17:00:00Z',
@@ -197,9 +193,7 @@ export const INITIAL_ASSIGNMENTS: AssignmentRecord[] = [
     content: '이차부등식 킬러문제 20문항 풀이 및 해설 비교',
     dueDate: '2026-10-08',
     isAbsent: false,
-    status: 'partial',
-    achievementScore: 80,
-    teacherComment: 'C단계 고난도 2문항 미해결, 다음 수업 전 질문 해결 필요',
+    status: 'completed',
     smsSent: false,
     createdAt: '2026-10-06T17:10:00Z',
     updatedAt: '2026-10-06T17:10:00Z'
@@ -219,8 +213,6 @@ export const INITIAL_ASSIGNMENTS: AssignmentRecord[] = [
     isAbsent: true,
     absentReason: '감기 몸살로 인한 병결',
     status: 'absent',
-    achievementScore: 0,
-    teacherComment: '학생 컨디션 회복 후 목요일 오후 5시 보충 클리닉 안내',
     smsSent: true,
     smsSentAt: '2026-10-06T16:00:00Z',
     createdAt: '2026-10-06T15:50:00Z',
@@ -240,8 +232,6 @@ export const INITIAL_ASSIGNMENTS: AssignmentRecord[] = [
     dueDate: '2026-10-05',
     isAbsent: false,
     status: 'completed',
-    achievementScore: 92,
-    teacherComment: '시간 관리 훌륭함, 18번 배점 높은 서술형 완벽 풀이',
     smsSent: true,
     smsSentAt: '2026-10-02T19:00:00Z',
     createdAt: '2026-10-02T18:00:00Z',
@@ -266,7 +256,7 @@ export const INITIAL_LOGS: ActivityLog[] = [
     action: '과제 등록',
     operator: '박주은 선생님',
     studentName: '이준우',
-    details: '쎈 고등 수학(상) p.112~p.117 수학 과제 등록 (미완료 2문항 코멘트)'
+    details: '쎈 고등 수학(상) p.112~p.117 수학 과제 등록'
   },
   {
     id: 'log-3',

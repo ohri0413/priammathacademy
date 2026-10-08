@@ -50,6 +50,13 @@ export default function App() {
   // Settings Modal state
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
+  // Student Delete Confirmation dialog state (safe for iframes)
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean;
+    studentId: string;
+    studentName: string;
+  }>({ isOpen: false, studentId: '', studentName: '' });
+
   // Load from storage on mount
   useEffect(() => {
     setStudents(loadStudents());
@@ -124,18 +131,27 @@ export default function App() {
   };
 
   const handleDeleteStudent = (id: string, name: string) => {
-    if (confirm(`정말 ${name} 학생을 삭제하시겠습니까? 관련 학생 데이터가 정리됩니다.`)) {
-      const updatedList = students.filter((s) => s.id !== id);
-      setStudents(updatedList);
-      saveStudents(updatedList);
-      handleLogActivity(
-        'STUDENT',
-        '학생 삭제',
-        '관리자',
-        `${name} 학생 DB에서 삭제 처리됨`,
-        name
-      );
-    }
+    setDeleteDialog({
+      isOpen: true,
+      studentId: id,
+      studentName: name
+    });
+  };
+
+  const confirmDeleteStudent = () => {
+    const id = deleteDialog.studentId;
+    const name = deleteDialog.studentName;
+    const updatedList = students.filter((s) => s.id !== id);
+    setStudents(updatedList);
+    saveStudents(updatedList);
+    handleLogActivity(
+      'STUDENT',
+      '학생 삭제',
+      '관리자',
+      `${name} 학생 DB에서 삭제 처리됨`,
+      name
+    );
+    setDeleteDialog({ isOpen: false, studentId: '', studentName: '' });
   };
 
   const handleQuickChangeExamTeacher = (studentId: string, newTeacher: string) => {
@@ -316,6 +332,34 @@ export default function App() {
         studentToEdit={studentToEdit}
         teacherList={teachers}
       />
+
+      {/* Student Delete Confirmation Modal (In-app safe modal) */}
+      {deleteDialog.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4 animate-in fade-in zoom-in-95">
+            <h3 className="text-base font-bold text-slate-900">학생 정보 삭제</h3>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              정말 <strong>{deleteDialog.studentName}</strong> 학생을 삭제하시겠습니까? 관련된 학생 데이터가 정리됩니다.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteDialog({ isOpen: false, studentId: '', studentName: '' })}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteStudent}
+                className="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-xs transition-colors"
+              >
+                삭제하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Academy Settings Modal */}
       <SettingsModal

@@ -42,6 +42,12 @@ export const SmsCenter: React.FC<SmsCenterProps> = ({
   const [selectedTeacher, setSelectedTeacher] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'SENT'>('ALL');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 2500);
+  };
 
   // Filter records by date
   const filteredAssignments = assignments.filter((a) => {
@@ -103,7 +109,7 @@ export const SmsCenter: React.FC<SmsCenterProps> = ({
   const handleCopyAllPending = async () => {
     const pendingList = filteredAssignments.filter((a) => !a.smsSent);
     if (pendingList.length === 0) {
-      alert('발송 대기 중인 문자가 없습니다.');
+      showToast('발송 대기 중인 문자가 없습니다.');
       return;
     }
 
@@ -117,7 +123,7 @@ export const SmsCenter: React.FC<SmsCenterProps> = ({
 
     const success = await copyToClipboard(allTexts);
     if (success) {
-      alert(`${pendingList.length}건의 문자가 한번에 클립보드에 복사되었습니다!`);
+      showToast(`📋 ${pendingList.length}건의 문자가 한번에 클립보드에 복사되었습니다!`);
       // Mark all as sent
       pendingList.forEach((record) => {
         onUpdateAssignment({
@@ -141,6 +147,13 @@ export const SmsCenter: React.FC<SmsCenterProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-2 text-sm border border-slate-700 animate-in fade-in slide-in-from-bottom-2">
+          <Check className="w-4 h-4 text-emerald-400" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
       {/* Header Banner */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>

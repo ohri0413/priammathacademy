@@ -35,6 +35,12 @@ export const MonthlyReportView: React.FC<MonthlyReportViewProps> = ({
     students[0]?.id || ''
   );
   const [customComment, setCustomComment] = useState<Record<string, string>>({});
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 2500);
+  };
 
   const selectedStudent = students.find((s) => s.id === selectedStudentId);
 
@@ -104,7 +110,7 @@ ${activeComment}
 
     const ok = await copyToClipboard(reportSmsText);
     if (ok) {
-      alert(`${selectedStudent.name} 학생의 월간 리포트 안내 문자가 복사되었습니다!`);
+      showToast(`📋 ${selectedStudent.name} 학생의 월간 리포트 안내 문자가 복사되었습니다!`);
       onLogActivity(
         'SMS',
         '월간 리포트 문자 복사',
@@ -117,6 +123,12 @@ ${activeComment}
 
   return (
     <div className="space-y-4">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-2 text-xs font-semibold animate-in fade-in slide-in-from-bottom-2">
+          <span>{toastMessage}</span>
+        </div>
+      )}
       {/* Top Banner (No-print) */}
       <div className="no-print bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>

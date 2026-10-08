@@ -26,6 +26,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({
   const [regularTeacher, setRegularTeacher] = useState('');
   const [examTeacher, setExamTeacher] = useState('');
   const [memo, setMemo] = useState('');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const gradeOptions = ['초등', '중1', '중2', '중3', '고1', '고2', '고3', 'N수생'];
 
@@ -66,13 +67,14 @@ export const StudentModal: React.FC<StudentModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      alert('학생 이름을 입력해주세요.');
+      setErrorMsg('학생 이름을 입력해주세요.');
       return;
     }
     if (classDays.length === 0) {
-      alert('최소 1개 이상의 수업 요일을 선택해주세요.');
+      setErrorMsg('최소 1개 이상의 수업 요일을 선택해주세요.');
       return;
     }
+    setErrorMsg(null);
 
     onSave(
       {
@@ -115,6 +117,12 @@ export const StudentModal: React.FC<StudentModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+          {errorMsg && (
+            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center gap-2">
+              <span className="font-semibold">입력 오류:</span>
+              <span>{errorMsg}</span>
+            </div>
+          )}
           {/* Row 1: Name, School, Grade */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>

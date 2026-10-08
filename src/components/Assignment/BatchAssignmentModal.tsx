@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Layers, CheckSquare } from 'lucide-react';
+import { X, Layers, CheckSquare, AlertCircle } from 'lucide-react';
 import { Student } from '../../types';
 
 interface BatchAssignmentModalProps {
@@ -11,7 +11,6 @@ interface BatchAssignmentModalProps {
     pageRange: string;
     content: string;
     dueDate: string;
-    teacherComment: string;
     studentIds: string[];
   }) => void;
   defaultDueDate: string;
@@ -28,7 +27,7 @@ export const BatchAssignmentModal: React.FC<BatchAssignmentModalProps> = ({
   const [pageRange, setPageRange] = useState('');
   const [content, setContent] = useState('');
   const [dueDate, setDueDate] = useState(defaultDueDate);
-  const [teacherComment, setTeacherComment] = useState('오늘 수업 내용을 바탕으로 꼼꼼히 풀이 바랍니다.');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>(
     targetStudents.map((s) => s.id)
   );
@@ -54,19 +53,19 @@ export const BatchAssignmentModal: React.FC<BatchAssignmentModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!bookTitle.trim()) {
-      alert('교재명을 입력해주세요.');
+      setErrorMsg('교재명을 입력해주세요.');
       return;
     }
     if (selectedStudentIds.length === 0) {
-      alert('과제를 적용할 학생을 1명 이상 선택해주세요.');
+      setErrorMsg('과제를 적용할 학생을 1명 이상 선택해주세요.');
       return;
     }
+    setErrorMsg(null);
     onApply({
-      bookTitle,
-      pageRange,
-      content,
+      bookTitle: bookTitle.trim(),
+      pageRange: pageRange.trim(),
+      content: content.trim(),
       dueDate,
-      teacherComment,
       studentIds: selectedStudentIds
     });
     onClose();
@@ -82,7 +81,7 @@ export const BatchAssignmentModal: React.FC<BatchAssignmentModalProps> = ({
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-900">과제 일괄 입력</h2>
-              <p className="text-xs text-slate-500">선택한 학생들에게 동일한 과제를 일괄 부여합니다</p>
+              <p className="text-xs text-slate-500">선택한 학생들에게 동일한 교재 및 과제를 일괄 부여합니다</p>
             </div>
           </div>
           <button
@@ -94,6 +93,13 @@ export const BatchAssignmentModal: React.FC<BatchAssignmentModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+          {errorMsg && (
+            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
           {/* Target Student Checklist */}
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -134,13 +140,16 @@ export const BatchAssignmentModal: React.FC<BatchAssignmentModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                교재명 / 단원 <span className="text-rose-500">*</span>
+                교재명 <span className="text-rose-500">*</span>
               </label>
               <input
                 type="text"
-                placeholder="예: 쎈 수학(상), 개념원리"
+                placeholder="예: 쎈 수학(상), 개념원리 RPM"
                 value={bookTitle}
-                onChange={(e) => setBookTitle(e.target.value)}
+                onChange={(e) => {
+                  setBookTitle(e.target.value);
+                  setErrorMsg(null);
+                }}
                 required
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
@@ -168,25 +177,14 @@ export const BatchAssignmentModal: React.FC<BatchAssignmentModalProps> = ({
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">제출 기한</label>
-              <input
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">기본 안내 코멘트</label>
-              <input
-                type="text"
-                value={teacherComment}
-                onChange={(e) => setTeacherComment(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">제출 마감일</label>
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">

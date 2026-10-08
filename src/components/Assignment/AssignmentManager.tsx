@@ -22,8 +22,7 @@ import {
   BookOpen,
   ShieldCheck,
   CheckCircle2,
-  Clock,
-  Sparkles
+  Clock
 } from 'lucide-react';
 
 interface AssignmentManagerProps {
@@ -55,6 +54,19 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
   const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
   // Toast state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // In-app confirm modal state (replaces window.confirm)
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
 
   // When date changes, automatically sync day of week
   const handleDateChange = (newDate: string) => {
@@ -96,7 +108,7 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
       if (existing) {
         newDrafts[student.id] = { ...existing };
       } else {
-        // default template for new assignment
+        // default template for new assignment (removed status, score, comment)
         newDrafts[student.id] = {
           studentId: student.id,
           studentName: student.name,
@@ -110,9 +122,7 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
           dueDate: selectedDate,
           isAbsent: false,
           absentReason: '',
-          status: 'pending',
-          achievementScore: 100,
-          teacherComment: '성실하게 과제를 완료하여 다음 수업에 임해주세요.',
+          status: 'completed',
           smsSent: false
         };
       }
@@ -142,15 +152,13 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
       dayOfWeek: selectedDay,
       mode,
       teacher: selectedTeacher,
-      bookTitle: draft.isAbsent ? '-' : draft.bookTitle || '기본 교재',
+      bookTitle: draft.isAbsent ? '-' : draft.bookTitle || '지정 교재',
       pageRange: draft.isAbsent ? '-' : draft.pageRange || '',
       content: draft.isAbsent ? '결석으로 인한 과제 미부여' : draft.content || '',
       dueDate: draft.dueDate || selectedDate,
       isAbsent: !!draft.isAbsent,
       absentReason: draft.absentReason || '',
-      status: draft.isAbsent ? 'absent' : (draft.status || 'completed'),
-      achievementScore: draft.isAbsent ? 0 : Number(draft.achievementScore ?? 100),
-      teacherComment: draft.teacherComment || '',
+      status: draft.isAbsent ? 'absent' : 'completed',
       smsSent: !!draft.smsSent,
       smsSentAt: draft.smsSent ? (draft.smsSentAt || new Date().toISOString()) : undefined,
       createdAt: draft.createdAt || new Date().toISOString(),
@@ -164,7 +172,7 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
       selectedTeacher,
       draft.isAbsent
         ? `${student.name} 학생 결석 처리 (${draft.absentReason || '사유 미기재'})`
-        : `${student.name} 학생 [${mode === 'exam' ? '시험대비' : '정규'}] ${recordToSave.bookTitle} 과제 저장`,
+        : `${student.name} 학생 [${mode === 'exam' ? '내신대비' : '정규'}] ${recordToSave.bookTitle} 과제 저장`,
       student.name
     );
 
@@ -195,9 +203,7 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
           dueDate: selectedDate,
           isAbsent: false,
           absentReason: '',
-          status: 'pending',
-          achievementScore: 100,
-          teacherComment: '',
+          status: 'completed',
           smsSent: false
         }
       }));
@@ -205,24 +211,29 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
       return;
     }
 
-    if (confirm(`${student.name} 학생의 ${selectedDate} 과제 기록을 삭제하시겠습니까?`)) {
-      onDeleteAssignment(existing.id, student.name);
-      onLogActivity(
-        'ASSIGNMENT',
-        '과제 삭제',
-        selectedTeacher,
-        `${student.name} 학생의 ${selectedDate} 과제 기록 삭제됨`,
-        student.name
-      );
-      showToast(`${student.name} 학생의 과제 기록이 삭제되었습니다.`);
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: '과제 기록 삭제',
+      message: `${student.name} 학생의 ${selectedDate} 과제 기록을 삭제하시겠습니까?`,
+      onConfirm: () => {
+        onDeleteAssignment(existing.id, student.name);
+        onLogActivity(
+          'ASSIGNMENT',
+          '과제 삭제',
+          selectedTeacher,
+          `${student.name} 학생의 ${selectedDate} 과제 기록 삭제됨`,
+          student.name
+        );
+        showToast(`${student.name} 학생의 과제 기록이 삭제되었습니다.`);
+        setConfirmDialog({ isOpen: false, title: '', message: '', onConfirm: () => {} });
+      }
+    });
   };
 
   const handleCopySms = async (student: Student) => {
     const draft = drafts[student.id];
     if (!draft) return;
 
-    // ensure saved record structure
     const tempRecord: AssignmentRecord = {
       id: draft.id || `asg-${student.id}`,
       studentId: student.id,
@@ -237,9 +248,7 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
       dueDate: draft.dueDate || selectedDate,
       isAbsent: !!draft.isAbsent,
       absentReason: draft.absentReason || '개인 사유',
-      status: draft.status || 'pending',
-      achievementScore: draft.achievementScore ?? 100,
-      teacherComment: draft.teacherComment || '',
+      status: draft.isAbsent ? 'absent' : 'completed',
       smsSent: true,
       smsSentAt: new Date().toISOString(),
       createdAt: draft.createdAt || new Date().toISOString(),
@@ -250,11 +259,9 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
     const copied = await copyToClipboard(smsText);
 
     if (copied) {
-      // Mark as smsSent in draft & save
       updateDraft(student.id, 'smsSent', true);
       updateDraft(student.id, 'smsSentAt', new Date().toISOString());
 
-      // Also persist to store
       onSaveAssignment({
         ...tempRecord,
         smsSent: true,
@@ -271,7 +278,7 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
 
       showToast(`📋 ${student.name} 학부모님 발송 문자 복사 완료! 바로 붙여넣기 하세요.`);
     } else {
-      alert('클립보드 복사에 실패했습니다.');
+      showToast('클립보드 복사에 실패했습니다.');
     }
   };
 
@@ -281,7 +288,6 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
     pageRange: string;
     content: string;
     dueDate: string;
-    teacherComment: string;
     studentIds: string[];
   }) => {
     batchData.studentIds.forEach((sid) => {
@@ -301,9 +307,7 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
         content: batchData.content,
         dueDate: batchData.dueDate,
         isAbsent: false,
-        status: 'pending',
-        achievementScore: 100,
-        teacherComment: batchData.teacherComment,
+        status: 'completed',
         smsSent: false,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
@@ -332,7 +336,33 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
         </div>
       )}
 
-      {/* Mode Switcher Banner (Requirement 8) */}
+      {/* In-app Confirm Modal (Safe in iframes) */}
+      {confirmDialog.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4 animate-in fade-in zoom-in-95">
+            <h3 className="text-base font-bold text-slate-900">{confirmDialog.title}</h3>
+            <p className="text-sm text-slate-600 leading-relaxed">{confirmDialog.message}</p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDialog({ isOpen: false, title: '', message: '', onConfirm: () => {} })}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={confirmDialog.onConfirm}
+                className="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-xs"
+              >
+                삭제하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mode Switcher Banner */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
@@ -379,7 +409,7 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
         </div>
       </div>
 
-      {/* Date, Day, Teacher Selector Card (Requirement 3) */}
+      {/* Date, Day, Teacher Selector Card */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {/* 1. Date Selector */}
@@ -543,7 +573,7 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
                     </div>
                   </div>
 
-                  {/* Absent Check Button (Requirement 6) */}
+                  {/* Absent Check Button */}
                   <div className="flex items-center gap-2">
                     <label
                       className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition-colors ${
@@ -564,10 +594,9 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
                   </div>
                 </div>
 
-                {/* Assignment Input Body */}
+                {/* Assignment Input Body (Simplified per request: 교재명만, 상태/점수/코멘트 삭제) */}
                 <div className="p-5">
                   {isAbsent ? (
-                    /* Absent Notice Panel (Requirement 6: 결석한 학생들은 과제 명단에서 자동 제외) */
                     <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl space-y-3">
                       <div className="flex items-center gap-2 text-rose-800 font-bold text-sm">
                         <AlertTriangle className="w-4 h-4 text-rose-600" />
@@ -590,19 +619,18 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
                       </p>
                     </div>
                   ) : (
-                    /* Regular / Exam Assignment Input Form */
                     <div className="space-y-3.5">
-                      {/* Row 1: Book & Range */}
+                      {/* Row 1: Book & Range (단원 제거, 교재명만 입력) */}
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div className="sm:col-span-2">
                           <label className="block text-xs font-semibold text-slate-700 mb-1">
-                            과제 교재명 / 단원 <span className="text-rose-500">*</span>
+                            교재명 <span className="text-rose-500">*</span>
                           </label>
                           <input
                             type="text"
                             value={draft.bookTitle || ''}
                             onChange={(e) => updateDraft(student.id, 'bookTitle', e.target.value)}
-                            placeholder="예: 쎈 수학(상) / 3단원 이차함수"
+                            placeholder="예: 쎈 수학(상), 개념원리 RPM"
                             className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                         </div>
@@ -620,22 +648,20 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
                         </div>
                       </div>
 
-                      {/* Row 2: Assignment Detailed Content */}
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          과제 상세 내용 및 지시사항
-                        </label>
-                        <textarea
-                          rows={2}
-                          value={draft.content || ''}
-                          onChange={(e) => updateDraft(student.id, 'content', e.target.value)}
-                          placeholder="예: 홀수번 위주 풀이, 틀린 문제 오답노트에 풀이과정 정확히 적어오기"
-                          className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-
-                      {/* Row 3: Due date, Status, Score */}
+                      {/* Row 2: Content & Due Date */}
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="sm:col-span-2">
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            과제 상세 내용
+                          </label>
+                          <input
+                            type="text"
+                            value={draft.content || ''}
+                            onChange={(e) => updateDraft(student.id, 'content', e.target.value)}
+                            placeholder="예: 홀수번 위주 풀이 및 오답노트 작성"
+                            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
                         <div>
                           <label className="block text-xs font-semibold text-slate-700 mb-1">
                             제출 마감일
@@ -647,52 +673,6 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
                             className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                         </div>
-
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-700 mb-1">
-                            과제 수행 상태
-                          </label>
-                          <select
-                            value={draft.status || 'pending'}
-                            onChange={(e) => updateDraft(student.id, 'status', e.target.value)}
-                            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                          >
-                            <option value="pending">진행 중 (과제 부여)</option>
-                            <option value="completed">완료 (100% 이행)</option>
-                            <option value="partial">일부 완료 (보충 필요)</option>
-                            <option value="incomplete">미완료 (미제출)</option>
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-700 mb-1">
-                            성취도 점수 (100점 만점)
-                          </label>
-                          <input
-                            type="number"
-                            min="0"
-                            max="100"
-                            value={draft.achievementScore ?? 100}
-                            onChange={(e) =>
-                              updateDraft(student.id, 'achievementScore', Number(e.target.value))
-                            }
-                            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Row 4: Teacher Comment for parents */}
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          선생님 코멘트 (학부모 알림 문자에 포함)
-                        </label>
-                        <input
-                          type="text"
-                          value={draft.teacherComment || ''}
-                          onChange={(e) => updateDraft(student.id, 'teacherComment', e.target.value)}
-                          placeholder="예: 개념 이해도가 우수합니다. 서술형 풀이 과정을 신경 써주세요."
-                          className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
                       </div>
                     </div>
                   )}
@@ -729,7 +709,7 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
                         <span className="hidden sm:inline">삭제</span>
                       </button>
 
-                      {/* 1-Click Copy SMS Button (Requirement 4) */}
+                      {/* 1-Click Copy SMS Button */}
                       <button
                         onClick={() => handleCopySms(student)}
                         className="px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition-colors flex items-center gap-1.5 shadow-xs"

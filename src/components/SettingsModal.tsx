@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AcademySettings } from '../types';
-import { X, Settings, MessageSquare, Users, Download, Upload, RotateCcw, Plus, Trash2 } from 'lucide-react';
+import { X, Settings, Download, RotateCcw, Plus, Trash2, Check, AlertCircle } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -32,6 +32,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const [newTeacherName, setNewTeacherName] = useState('');
   const [teachers, setTeachers] = useState<string[]>(teacherList);
+  const [infoMsg, setInfoMsg] = useState<string | null>(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   if (!isOpen) return null;
 
@@ -44,24 +46,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       absentSmsTemplate
     });
     onUpdateTeachers(teachers);
-    alert('설정이 저장되었습니다.');
     onClose();
   };
 
   const handleAddTeacher = () => {
     if (!newTeacherName.trim()) return;
     if (teachers.includes(newTeacherName.trim())) {
-      alert('이미 등록된 선생님입니다.');
+      setInfoMsg('이미 등록된 선생님입니다.');
+      setTimeout(() => setInfoMsg(null), 2500);
       return;
     }
     const updated = [...teachers, newTeacherName.trim()];
     setTeachers(updated);
     setNewTeacherName('');
+    setInfoMsg('선생님이 추가되었습니다.');
+    setTimeout(() => setInfoMsg(null), 2000);
   };
 
   const handleDeleteTeacher = (name: string) => {
     if (teachers.length <= 1) {
-      alert('최소 1명의 선생님이 등록되어 있어야 합니다.');
+      setInfoMsg('최소 1명의 선생님이 등록되어 있어야 합니다.');
+      setTimeout(() => setInfoMsg(null), 2500);
       return;
     }
     setTeachers(teachers.filter((t) => t !== name));
@@ -133,6 +138,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
 
+        {/* Info banner if any */}
+        {infoMsg && (
+          <div className="mx-6 mt-3 p-2.5 bg-blue-50 border border-blue-200 text-blue-800 text-xs rounded-xl flex items-center gap-2">
+            <Check className="w-4 h-4 text-blue-600 shrink-0" />
+            <span>{infoMsg}</span>
+          </div>
+        )}
+
         {/* Content */}
         <div className="p-6 max-h-[70vh] overflow-y-auto space-y-4">
           {activeTab === 'general' && (
@@ -164,7 +177,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 치환 변수:{' '}
                 <code>{'{studentName}'}</code>, <code>{'{date}'}</code>, <code>{'{dayOfWeek}'}</code>,{' '}
                 <code>{'{teacher}'}</code>, <code>{'{bookTitle}'}</code>, <code>{'{pageRange}'}</code>,{' '}
-                <code>{'{content}'}</code>, <code>{'{dueDate}'}</code>, <code>{'{teacherComment}'}</code>,{' '}
+                <code>{'{content}'}</code>, <code>{'{dueDate}'}</code>,{' '}
                 <code>{'{absentReason}'}</code>, <code>{'{academyName}'}</code>, <code>{'{academyPhone}'}</code>
               </div>
 
@@ -173,7 +186,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   1. 정규 수업 과제 문자 양식
                 </label>
                 <textarea
-                  rows={4}
+                  rows={5}
                   value={regularSmsTemplate}
                   onChange={(e) => setRegularSmsTemplate(e.target.value)}
                   className="w-full p-2.5 font-mono text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -185,7 +198,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   2. 시험기간 집중 과제 문자 양식
                 </label>
                 <textarea
-                  rows={4}
+                  rows={5}
                   value={examSmsTemplate}
                   onChange={(e) => setExamSmsTemplate(e.target.value)}
                   className="w-full p-2.5 font-mono text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -197,7 +210,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   3. 결석 안내 문자 양식
                 </label>
                 <textarea
-                  rows={4}
+                  rows={5}
                   value={absentSmsTemplate}
                   onChange={(e) => setAbsentSmsTemplate(e.target.value)}
                   className="w-full p-2.5 font-mono text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -211,7 +224,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="flex gap-2">
                 <input
                   type="text"
-                  placeholder="예: 윤재혁 선생님 (수학)"
+                  placeholder="예: 최광민 선생님"
                   value={newTeacherName}
                   onChange={(e) => setNewTeacherName(e.target.value)}
                   className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -268,20 +281,47 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <p className="text-xs text-rose-700">
                   처음 제공된 샘플 학생 및 과제 데이터로 리셋합니다.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (confirm('정말 초기 샘플 데이터로 리셋하시겠습니까? 현재 입력된 모든 데이터가 대체됩니다.')) {
-                      onResetData();
-                      alert('초기 데이터로 복원되었습니다.');
-                      onClose();
-                    }
-                  }}
-                  className="px-4 py-2 text-xs font-semibold text-rose-700 bg-white border border-rose-300 hover:bg-rose-100 rounded-lg flex items-center gap-1.5 shadow-xs"
-                >
-                  <RotateCcw className="w-4 h-4 text-rose-600" />
-                  <span>초기 데이터로 리셋</span>
-                </button>
+                {!showResetConfirm ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowResetConfirm(true)}
+                    className="px-4 py-2 text-xs font-semibold text-rose-700 bg-white border border-rose-300 hover:bg-rose-100 rounded-lg flex items-center gap-1.5 shadow-xs"
+                  >
+                    <RotateCcw className="w-4 h-4 text-rose-600" />
+                    <span>초기 데이터로 리셋</span>
+                  </button>
+                ) : (
+                  <div className="p-3 bg-white border border-rose-300 rounded-xl space-y-2">
+                    <p className="text-xs text-rose-800 font-semibold flex items-center gap-1">
+                      <AlertCircle className="w-4 h-4 text-rose-600" />
+                      현재 입력된 모든 데이터가 초기화됩니다. 계속하시겠습니까?
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowResetConfirm(false)}
+                        className="px-3 py-1.5 text-xs text-slate-600 bg-slate-100 rounded-lg"
+                      >
+                        취소
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onResetData();
+                          setShowResetConfirm(false);
+                          setInfoMsg('초기 데이터로 복원되었습니다.');
+                          setTimeout(() => {
+                            setInfoMsg(null);
+                            onClose();
+                          }, 1000);
+                        }}
+                        className="px-3 py-1.5 text-xs font-bold text-white bg-rose-600 rounded-lg"
+                      >
+                        네, 초기화합니다
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
