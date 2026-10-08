@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 import { Student, AssignmentRecord, AcademySettings, MonthlyAchievementSummary } from '../types';
 
 export const calculateMonthlySummary = (
@@ -13,7 +14,8 @@ export const calculateMonthlySummary = (
     id: student?.id || '',
     name: student?.name || '학생',
     school: student?.school || '미지정',
-    grade: student?.grade || '중2'
+    grade: student?.grade || '중2',
+    regularTeacher: student?.regularTeacher || '최광민 선생님'
   };
 
   const monthRecords = (assignments || []).filter(
@@ -39,14 +41,16 @@ export const calculateMonthlySummary = (
     ? Math.round(((completedAssignments + partialAssignments * 0.5) / totalAssignments) * 100)
     : 100;
 
-  // Build a summary teacher comment
+  // Comprehensive teacher comment
   let defaultComment = '';
-  if (assignmentCompletionRate >= 90) {
-    defaultComment = `${safeStudent.name} 학생은 이번 달 성실하게 모든 수학 과제를 완수하며 높은 학업 성취도를 보였습니다. 꾸준한 수학 학습 태도를 계속 격려해 주세요.`;
-  } else if (assignmentCompletionRate >= 70) {
-    defaultComment = `대체로 수학 과제 수행이 양호하였으나, 일부 고난도 문항 오답 정리 및 취약 유형 복습에 조금 더 집중이 필요합니다. 원에서도 지속적으로 1:1 클리닉을 진행하겠습니다.`;
+  if (attendanceRate === 100 && assignmentCompletionRate >= 95) {
+    defaultComment = `${safeStudent.name} 학생은 이번 달 결석 없이 전 수업에 성실히 출석하였으며, 부여된 모든 수학 과제를 100%에 가깝게 완벽히 완수하여 매우 뛰어난 성취도를 보였습니다. 심화 개념 이해도 및 문제 해결력이 탄탄하게 성장하고 있으니, 가정에서도 아낌없는 칭찬과 격려를 부탁드립니다.`;
+  } else if (assignmentCompletionRate >= 80) {
+    defaultComment = `${safeStudent.name} 학생은 수업 참여도가 매우 우수하며 정규 수학 과제를 성실하게 수행하고 있습니다. 일부 고난도 서술형 문항 및 오답 노트를 꼼꼼히 복습한다면 다음 평가에서 더 큰 도약이 기대됩니다. 원에서도 1:1 맞춤 피드백을 지속하겠습니다.`;
+  } else if (assignmentCompletionRate >= 60) {
+    defaultComment = `${safeStudent.name} 학생은 수업 태도가 양호하나 일부 단원의 과제 완성도가 다소 미흡한 회차가 있었습니다. 취약 단원 개념을 보강하고 매일 일정 분량씩 꾸준히 과제를 해결할 수 있도록 가정에서도 함께 학습 점검을 격려해 주시기를 권장합니다.`;
   } else {
-    defaultComment = `수학 과제 미제출 및 개념 보충이 필요한 단원이 있어 개별 클리닉을 병행하고 있습니다. 가정에서도 수학 과제 점검을 함께 확인해 주시길 부탁드립니다.`;
+    defaultComment = `${safeStudent.name} 학생의 과제 미제출 및 복습 부족이 확인되어 개별 클리닉과 보충 학습을 집중 지도하고 있습니다. 기초 연산과 개념 노트를 우선적으로 점검하고 있으니, 학원과 가정이 연계하여 과제 수행 습관을 함께 잡아주시기를 부탁드립니다.`;
   }
 
   return {
@@ -72,96 +76,91 @@ export const calculateMonthlySummary = (
   };
 };
 
-export const exportMonthlyReportToPdf = (
+/**
+ * HTML 요소를 고해상도 캔버스로 변환하여 글자 깨짐 없는 한글 완벽 지원 PDF 다운로드
+ */
+export const exportReportElementToPdf = async (
+  element: HTMLElement,
+  filename: string
+): Promise<boolean> => {
+  try {
+    // 2x 스케일로 렌더링하여 고해상도 인쇄 품질 보장
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      backgroundColor: '#ffffff'
+    });
+
+    const imgData = canvas.toDataURL('image/png');
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth(); // 210mm
+    const pageHeight = pdf.internal.pageSize.getHeight(); // 297mm
+    const margin = 8; // 8mm margin
+    const contentWidth = pageWidth - margin * 2; // 194mm
+    const contentHeight = (canvas.height * contentWidth) / canvas.width;
+
+    if (contentHeight <= pageHeight - margin * 2) {
+      // 1페이지에 딱 맞게 배치
+      pdf.addImage(imgData, 'PNG', margin, margin, contentWidth, contentHeight);
+    } else {
+      // 내용이 길 경우 1페이지 높이에 비례 축소 맞춤하거나 멀티페이지 처리
+      const maxPageH = pageHeight - margin * 2;
+      if (contentHeight <= maxPageH * 1.3) {
+        // 약간 긴 경우 깔끔하게 1페이지에 맞춤
+        const scale = maxPageH / contentHeight;
+        const fitW = contentWidth * scale;
+        const xOffset = margin + (contentWidth - fitW) / 2;
+        pdf.addImage(imgData, 'PNG', xOffset, margin, fitW, maxPageH);
+      } else {
+        // 여러 페이지로 깔끔하게 분할
+        let leftHeight = contentHeight;
+        let position = 0;
+        let page = 0;
+
+        while (leftHeight > 0) {
+          if (page > 0) {
+            pdf.addPage();
+          }
+          pdf.addImage(
+            imgData,
+            'PNG',
+            margin,
+            margin - position,
+            contentWidth,
+            contentHeight
+          );
+          leftHeight -= maxPageH;
+          position += maxPageH;
+          page++;
+        }
+      }
+    }
+
+    pdf.save(filename);
+    return true;
+  } catch (err) {
+    console.error('Failed to export PDF with html2canvas:', err);
+    return false;
+  }
+};
+
+/**
+ * 이전 호환용 exportMonthlyReportToPdf (element가 없을 시 기본 실행)
+ */
+export const exportMonthlyReportToPdf = async (
   student: Student,
   summary: MonthlyAchievementSummary,
   records: AssignmentRecord[],
-  settings: AcademySettings
+  settings: AcademySettings,
+  element?: HTMLElement | null
 ) => {
-  const doc = new jsPDF();
-
-  const [year, month] = summary.yearMonth.split('-');
-
-  // Header banner
-  doc.setFillColor(37, 99, 235); // Blue 600
-  doc.rect(0, 0, 210, 28, 'F');
-
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(18);
-  doc.text(`${settings.academyName} - Monthly Achievement Report`, 14, 18);
-
-  // Student Info Card
-  doc.setTextColor(30, 41, 59);
-  doc.setFontSize(12);
-  doc.text(`Report Period: ${year} / ${month}`, 14, 38);
-  doc.text(`Student: ${student.name} (${student.school} / ${student.grade})`, 14, 46);
-  doc.text(`Teacher: ${student.regularTeacher}`, 14, 54);
-  doc.text(`Exam Teacher: ${student.examTeacher}`, 14, 62);
-  doc.text(`Parent Contact: ${student.parentPhone}`, 120, 46);
-  doc.text(`Class Days: ${student.classDays.join(', ')}`, 120, 54);
-
-  // Summary Metrics Table Box
-  doc.setDrawColor(203, 213, 225);
-  doc.setFillColor(248, 250, 252);
-  doc.roundedRect(14, 70, 182, 38, 2, 2, 'FD');
-
-  doc.setFontSize(11);
-  doc.setTextColor(71, 85, 105);
-  doc.text(`Total Sessions: ${summary.totalClasses}`, 22, 80);
-  doc.text(`Attended: ${summary.attendedClasses} | Absent: ${summary.absentClasses}`, 22, 88);
-  doc.text(`Attendance Rate: ${summary.attendanceRate}%`, 22, 96);
-
-  doc.text(`Assignments: ${summary.totalAssignments}`, 105, 80);
-  doc.text(`Completed: ${summary.completedAssignments} | Incomplete: ${summary.incompleteAssignments}`, 105, 88);
-  doc.text(`Completion Rate: ${summary.assignmentCompletionRate}% (Avg Score: ${summary.averageScore} pts)`, 105, 96);
-
-  // Teacher comment box
-  doc.setFillColor(239, 246, 255);
-  doc.setDrawColor(191, 219, 254);
-  doc.roundedRect(14, 116, 182, 32, 2, 2, 'FD');
-
-  doc.setTextColor(30, 64, 175);
-  doc.setFontSize(11);
-  doc.text(`[Teacher's Monthly Assessment]`, 20, 126);
-  doc.setTextColor(51, 65, 85);
-  doc.setFontSize(10);
-  const splitComment = doc.splitTextToSize(summary.teacherComment, 170);
-  doc.text(splitComment, 20, 134);
-
-  // Records Table Header
-  doc.setFillColor(226, 232, 240);
-  doc.rect(14, 156, 182, 8, 'F');
-  doc.setFontSize(9);
-  doc.setTextColor(71, 85, 105);
-  doc.text('Date', 18, 161);
-  doc.text('Mode', 42, 161);
-  doc.text('Textbook / Assignment', 65, 161);
-  doc.text('Status', 140, 161);
-  doc.text('Score', 175, 161);
-
-  // Records Table Rows
-  let y = 170;
-  records.slice(0, 10).forEach((rec) => {
-    doc.setTextColor(30, 41, 59);
-    doc.text(`${rec.date} (${rec.dayOfWeek})`, 18, y);
-    doc.text(rec.mode === 'exam' ? 'Exam Prep' : 'Regular', 42, y);
-    const titleSnippet = (rec.bookTitle ? `${rec.bookTitle} ` : '') + (rec.pageRange || '');
-    doc.text(doc.splitTextToSize(titleSnippet || rec.content || '-', 70)[0] || '-', 65, y);
-    doc.text(rec.isAbsent ? 'ABSENT' : rec.status.toUpperCase(), 140, y);
-    doc.text(rec.isAbsent ? '-' : `${rec.achievementScore || 0} pts`, 175, y);
-    y += 8;
-  });
-
-  if (records.length > 10) {
-    doc.setFontSize(8);
-    doc.setTextColor(100, 116, 139);
-    doc.text(`... and ${records.length - 10} more records in this month`, 18, y + 2);
+  const filename = `${summary.yearMonth}_${student.name}_월간학습성취도리포트.pdf`;
+  if (element) {
+    return await exportReportElementToPdf(element, filename);
   }
 
-  // Footer
-  doc.setFontSize(9);
-  doc.setTextColor(148, 163, 184);
-  doc.text(`Issued by ${settings.academyName} (${settings.academyPhone}) | Generated on ${new Date().toLocaleDateString()}`, 14, 285);
-
-  doc.save(`${student.name}_${summary.yearMonth}_성취도리포트.pdf`);
+  // Fallback: If no DOM element passed, trigger window.print
+  window.print();
+  return true;
 };

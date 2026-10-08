@@ -85,13 +85,39 @@ export default function App() {
       if (data) {
         if (Array.isArray(data.students) && data.students.length > 0) {
           const safeStudents = data.students.map(sanitizeStudent);
-          setStudents(safeStudents);
-          saveStudents(safeStudents);
+          setStudents((prev) => {
+            const merged = [...safeStudents];
+            prev.forEach((p) => {
+              const idx = merged.findIndex(
+                (m) => m.id === p.id || (m.name === p.name && m.studentPhone === p.studentPhone)
+              );
+              if (idx === -1) {
+                merged.push(p);
+              } else if (p.updatedAt && merged[idx].updatedAt && new Date(p.updatedAt) > new Date(merged[idx].updatedAt)) {
+                merged[idx] = p;
+              }
+            });
+            saveStudents(merged);
+            return merged;
+          });
         }
         if (Array.isArray(data.assignments) && data.assignments.length > 0) {
           const safeAssignments = data.assignments.map(sanitizeAssignment);
-          setAssignments(safeAssignments);
-          saveAssignments(safeAssignments);
+          setAssignments((prev) => {
+            const merged = [...safeAssignments];
+            prev.forEach((p) => {
+              const idx = merged.findIndex(
+                (m) => m.id === p.id || (m.studentId === p.studentId && m.date === p.date && m.mode === p.mode)
+              );
+              if (idx === -1) {
+                merged.push(p);
+              } else if (p.updatedAt && merged[idx].updatedAt && new Date(p.updatedAt) > new Date(merged[idx].updatedAt)) {
+                merged[idx] = p;
+              }
+            });
+            saveAssignments(merged);
+            return merged;
+          });
         }
         if (Array.isArray(data.logs) && data.logs.length > 0) {
           setLogs(data.logs);
@@ -245,7 +271,8 @@ export default function App() {
       setSyncStatusText('구글 시트에서 학생 삭제 중...');
       try {
         await postGoogleSheetsData('deleteStudent', { id });
-        await syncFromGoogleSheets();
+        setSyncStatusText('구글 시트 삭제 완료!');
+        setTimeout(() => setSyncStatusText(null), 2500);
       } catch (e) {
         console.error('Google Sheets delete error:', e);
       } finally {
@@ -282,6 +309,8 @@ export default function App() {
       setIsSyncing(true);
       try {
         await postGoogleSheetsData('saveStudent', updatedStudent);
+        setSyncStatusText('선생님 정보 시트 반영 완료');
+        setTimeout(() => setSyncStatusText(null), 2500);
       } catch (e) {
         console.error('Failed to sync teacher change:', e);
       } finally {
@@ -321,9 +350,12 @@ export default function App() {
       setSyncStatusText('구글 시트에 과제 저장 중...');
       try {
         await postGoogleSheetsData('saveAssignment', record);
-        await syncFromGoogleSheets();
+        setSyncStatusText('구글 시트 과제 저장 완료!');
+        setTimeout(() => setSyncStatusText(null), 2500);
       } catch (e) {
         console.error('Google Sheets assignment save error:', e);
+        setSyncStatusText('로컬 저장 완료 (시트 저장 실패)');
+        setTimeout(() => setSyncStatusText(null), 3000);
       } finally {
         setIsSyncing(false);
       }
@@ -341,7 +373,8 @@ export default function App() {
       setSyncStatusText('구글 시트에서 과제 삭제 중...');
       try {
         await postGoogleSheetsData('deleteAssignment', { id });
-        await syncFromGoogleSheets();
+        setSyncStatusText('구글 시트 과제 삭제 완료!');
+        setTimeout(() => setSyncStatusText(null), 2500);
       } catch (e) {
         console.error('Google Sheets assignment delete error:', e);
       } finally {
@@ -381,6 +414,32 @@ export default function App() {
       } finally {
         setIsSyncing(false);
       }
+    }
+  };
+
+  const handleSyncAllToGoogleSheets = async (): Promise<boolean> => {
+    if (!isGasConfigured()) return false;
+    setIsSyncing(true);
+    setSyncStatusText('구글 시트에 전체 데이터 동기화 중...');
+    try {
+      const res = await postGoogleSheetsData('syncAll', {
+        students,
+        assignments,
+        logs,
+        settings,
+        teachers
+      });
+      if (res && res.success !== false) {
+        setSyncStatusText('구글 시트 전체 동기화 성공!');
+        setTimeout(() => setSyncStatusText(null), 3000);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error('Failed to sync all:', e);
+      return false;
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -551,6 +610,7 @@ export default function App() {
         onExportData={exportAllData}
         onResetData={handleResetData}
         onSyncWithGoogleSheets={syncFromGoogleSheets}
+        onSyncAllToGoogleSheets={handleSyncAllToGoogleSheets}
         isSyncing={isSyncing}
       />
     </div>

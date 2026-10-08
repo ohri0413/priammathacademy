@@ -1,5 +1,14 @@
 import { Student, AssignmentRecord, DayOfWeek, ALL_DAYS } from '../types';
 
+const parseBoolean = (val: any): boolean => {
+  if (val === true || val === 1 || val === '1') return true;
+  if (typeof val === 'string') {
+    const lower = val.trim().toLowerCase();
+    return lower === 'true' || lower === 'y' || lower === 'yes';
+  }
+  return false;
+};
+
 export const parseClassDays = (val: any): DayOfWeek[] => {
   if (Array.isArray(val)) {
     const valid = val.filter((d): d is DayOfWeek => ALL_DAYS.includes(d as DayOfWeek));
@@ -97,12 +106,12 @@ export const sanitizeAssignment = (a: any): AssignmentRecord => {
     content: String(a.content || ''),
     pageRange: String(a.pageRange || ''),
     dueDate: String(a.dueDate || rawDate),
-    isAbsent: !!a.isAbsent,
+    isAbsent: parseBoolean(a.isAbsent),
     absentReason: String(a.absentReason || ''),
-    status: a.isAbsent ? 'absent' : (a.status || 'completed'),
+    status: parseBoolean(a.isAbsent) ? 'absent' : (a.status || 'completed'),
     achievementScore: Number(a.achievementScore ?? 100),
     teacherComment: String(a.teacherComment || ''),
-    smsSent: !!a.smsSent,
+    smsSent: parseBoolean(a.smsSent),
     smsSentAt: a.smsSentAt ? String(a.smsSentAt) : undefined,
     createdAt: String(a.createdAt || new Date().toISOString()),
     updatedAt: String(a.updatedAt || new Date().toISOString())

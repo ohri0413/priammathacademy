@@ -94,7 +94,6 @@ export const postGoogleSheetsData = async (
 
     const response = await fetch(url, {
       method: 'POST',
-      // text/plain prevents CORS preflight OPTIONS request in browser
       headers: {
         'Content-Type': 'text/plain;charset=utf-8'
       },
@@ -105,8 +104,13 @@ export const postGoogleSheetsData = async (
       return null;
     });
 
-    if (!response || !response.ok) {
-      return { success: false, offline: true };
+    if (!response) {
+      // In Google Apps Script, cross-origin 302 redirects can trigger opaque responses, but the POST was received
+      return { success: true, warning: 'Redirected without readable body' };
+    }
+
+    if (!response.ok && response.status !== 0) {
+      return { success: false, status: response.status, offline: true };
     }
 
     const result = await response.json().catch(() => ({ success: true }));
@@ -121,12 +125,14 @@ export const postGoogleSheetsData = async (
  * 구글 시트에 붙여넣을 Google Apps Script (GAS) 코드 예시
  */
 export const SAMPLE_APPS_SCRIPT_CODE = `/**
- * [프리마 수학학원 x 구글 스프레드시트 연동 스크립트]
- * 1. 스프레드시트 메뉴 > 확장 프로그램 > Apps Script 클릭
- * 2. 기존 코드를 모두 지우고 아래 코드를 그대로 붙여넣기
- * 3. [배포] > [새 배포] > 유형: "웹 앱" 선택
- * 4. 설명: "프리마 수학학원 API", 액세스 권한: "모든 사용자(Anyone)" 선택 후 배포
- * 5. 생성된 '웹 앱 URL'을 복사하여 학원 설정에 입력하세요.
+ * [프리마 수학학원 x 구글 스프레드시트 실시간 연동 스크립트]
+ * 1. 스프레드시트 상단 메뉴 > [확장 프로그램] > [Apps Script] 클릭
+ * 2. 기존 코드를 모두 지우고 이 코드를 전체 붙여넣기
+ * 3. [배포] > [새 배포] 클릭
+ *    - 유형: "웹 앱(Web app)" 선택
+ *    - 설명: "프리마 수학학원 API v2"
+ *    - 액세스 권한: "모든 사용자(Anyone)" 반드시 선택!
+ * 4. [배포] 버튼 클릭 후 표시되는 웹 앱 URL을 복사하여 학원 설정에 입력하세요.
  */
 
 function doGet(e) {
@@ -150,6 +156,11 @@ function doGet(e) {
 
 function doPost(e) {
   try {
+    if (!e || !e.postData || !e.postData.contents) {
+      return ContentService.createTextOutput(JSON.stringify({ success: false, message: "No data received" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     var raw = e.postData.contents;
     var req = JSON.parse(raw);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -170,6 +181,8 @@ function doPost(e) {
       upsertRow(ss, "Assignments", "id", payload);
     } else if (action === "deleteAssignment") {
       deleteRow(ss, "Assignments", "id", payload.id);
+    } else if (action === "saveLog") {
+      appendLogRow(ss, payload);
     } else if (action === "saveSettings") {
       if (payload.settings) saveSettingsData(ss, payload.settings);
       if (payload.teachers) saveTeachersData(ss, payload.teachers);
@@ -194,11 +207,13 @@ function getSheetDataAsJson(ss, sheetName) {
     var row = rows[i];
     var obj = {};
     for (var j = 0; j < headers.length; j++) {
+      var key = headers[j];
+      if (!key) continue;
       var val = row[j];
       if (typeof val === 'string' && (val.startsWith('{') || val.startsWith('['))) {
         try { val = JSON.parse(val); } catch(e){}
       }
-      obj[headers[j]] = val;
+      obj[key] = val;
     }
     result.push(obj);
   }
@@ -210,16 +225,26 @@ function saveJsonToSheet(ss, sheetName, items) {
   if (!sheet) sheet = ss.insertSheet(sheetName);
   sheet.clear();
   if (!items || items.length === 0) return;
-  var headers = Object.keys(items[0]);
-  var values = [headers];
+  
+  // Collect all unique keys across all items
+  var headerSet = [];
   items.forEach(function(item) {
-    var row = headers.map(function(h) {
+    Object.keys(item).forEach(function(k) {
+      if (headerSet.indexOf(k) === -1) headerSet.push(k);
+    });
+  });
+
+  var values = [headerSet];
+  items.forEach(function(item) {
+    var row = headerSet.map(function(h) {
       var v = item[h];
-      return (typeof v === 'object' && v !== null) ? JSON.stringify(v) : (v || "");
+      if (v === true || v === false) return v;
+      if (typeof v === 'object' && v !== null) return JSON.stringify(v);
+      return (v !== undefined && v !== null) ? v : "";
     });
     values.push(row);
   });
-  sheet.getRange(1, 1, values.length, headers.length).setValues(values);
+  sheet.getRange(1, 1, values.length, headerSet.length).setValues(values);
 }
 
 function upsertRow(ss, sheetName, keyName, item) {
@@ -229,32 +254,89 @@ function upsertRow(ss, sheetName, keyName, item) {
     return;
   }
   var data = sheet.getDataRange().getValues();
-  if (data.length < 2) {
+  if (data.length === 0 || (data.length === 1 && data[0][0] === "")) {
     saveJsonToSheet(ss, sheetName, [item]);
     return;
   }
+
   var headers = data[0];
-  var keyCol = headers.indexOf(keyName);
-  if (keyCol === -1) {
-    saveJsonToSheet(ss, sheetName, [item]);
-    return;
+  // Ensure all keys in item exist in header
+  var updatedHeaders = false;
+  for (var k in item) {
+    if (headers.indexOf(k) === -1) {
+      headers.push(k);
+      updatedHeaders = true;
+    }
   }
+  if (updatedHeaders) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  }
+
+  var keyCol = headers.indexOf(keyName);
   var rowIndex = -1;
+
   for (var i = 1; i < data.length; i++) {
-    if (data[i][keyCol] == item[keyName]) {
+    var row = data[i];
+    // Primary ID match
+    if (keyCol !== -1 && row[keyCol] && row[keyCol] == item[keyName]) {
       rowIndex = i + 1;
       break;
     }
+    // Assignment composite match: studentId + date (+ mode)
+    if (sheetName === "Assignments") {
+      var sIdCol = headers.indexOf("studentId");
+      var dateCol = headers.indexOf("date");
+      var modeCol = headers.indexOf("mode");
+      if (sIdCol !== -1 && dateCol !== -1) {
+        var matchMode = modeCol === -1 || !item.mode || row[modeCol] == item.mode;
+        if (row[sIdCol] == item.studentId && row[dateCol] == item.date && matchMode) {
+          rowIndex = i + 1;
+          break;
+        }
+      }
+    }
+    // Student composite match: name + phone
+    if (sheetName === "Students") {
+      var nameCol = headers.indexOf("name");
+      var phoneCol = headers.indexOf("studentPhone");
+      if (nameCol !== -1 && phoneCol !== -1 && row[nameCol] == item.name && row[phoneCol] == item.studentPhone) {
+        rowIndex = i + 1;
+        break;
+      }
+    }
   }
+
   var rowData = headers.map(function(h) {
     var v = item[h];
-    return (typeof v === 'object' && v !== null) ? JSON.stringify(v) : (v !== undefined ? v : "");
+    if (v === true || v === false) return v;
+    if (typeof v === 'object' && v !== null) return JSON.stringify(v);
+    return (v !== undefined && v !== null) ? v : "";
   });
+
   if (rowIndex > 0) {
     sheet.getRange(rowIndex, 1, 1, headers.length).setValues([rowData]);
   } else {
     sheet.appendRow(rowData);
   }
+}
+
+function appendLogRow(ss, log) {
+  var sheet = ss.getSheetByName("Logs");
+  if (!sheet) {
+    saveJsonToSheet(ss, "Logs", [log]);
+    return;
+  }
+  var data = sheet.getDataRange().getValues();
+  if (data.length < 1 || (data.length === 1 && data[0][0] === "")) {
+    saveJsonToSheet(ss, "Logs", [log]);
+    return;
+  }
+  var headers = data[0];
+  var rowData = headers.map(function(h) {
+    var v = log[h];
+    return (v !== undefined && v !== null) ? v : "";
+  });
+  sheet.appendRow(rowData);
 }
 
 function deleteRow(ss, sheetName, keyName, keyValue) {

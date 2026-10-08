@@ -33,6 +33,7 @@ interface SettingsModalProps {
   onExportData: () => void;
   onResetData: () => void;
   onSyncWithGoogleSheets?: (targetUrl?: string) => Promise<boolean>;
+  onSyncAllToGoogleSheets?: () => Promise<boolean>;
   isSyncing?: boolean;
 }
 
@@ -46,6 +47,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onExportData,
   onResetData,
   onSyncWithGoogleSheets,
+  onSyncAllToGoogleSheets,
   isSyncing = false
 }) => {
   const [activeTab, setActiveTab] = useState<'general' | 'templates' | 'teachers' | 'sheets' | 'data'>('sheets');
@@ -57,6 +59,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const [gasUrl, setGasUrl] = useState(getGasWebAppUrl());
   const [testingConnection, setTestingConnection] = useState(false);
+  const [syncingAllData, setSyncingAllData] = useState(false);
 
   const [newTeacherName, setNewTeacherName] = useState('');
   const [teachers, setTeachers] = useState<string[]>(teacherList);
@@ -100,6 +103,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setInfoMsg(`❌ 연결 오류: ${e?.message || '네트워크 확인 필요'}`);
     } finally {
       setTestingConnection(false);
+      setTimeout(() => setInfoMsg(null), 4000);
+    }
+  };
+
+  const handleSyncAll = async () => {
+    if (!onSyncAllToGoogleSheets) return;
+    setSyncingAllData(true);
+    try {
+      const ok = await onSyncAllToGoogleSheets();
+      if (ok) {
+        setInfoMsg('✅ 구글 스프레드시트에 전체 원생, 과제, 로그, 설정이 성공적으로 생성 및 동기화되었습니다!');
+      } else {
+        setInfoMsg('⚠️ 전체 동기화 중 오류가 발생했습니다. 웹 앱 URL 및 권한을 확인하세요.');
+      }
+    } catch (e: any) {
+      setInfoMsg(`❌ 동기화 오류: ${e?.message || '네트워크 확인 필요'}`);
+    } finally {
+      setSyncingAllData(false);
       setTimeout(() => setInfoMsg(null), 4000);
     }
   };
@@ -277,6 +298,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       )}
                     </button>
                   </div>
+                </div>
+
+                {/* Full Sync action box */}
+                <div className="pt-2 border-t border-emerald-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="text-[11px] text-emerald-900 leading-snug">
+                    <strong>구글 시트 처음 연동 시:</strong> 현재 등록된 모든 학생, 과제, 설정을 구글 시트에 즉시 1-Click으로 생성·저장합니다.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSyncAll}
+                    disabled={syncingAllData || isSyncing || !isGasConfigured()}
+                    className="px-3.5 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-lg flex items-center justify-center gap-1.5 shadow-2xs disabled:opacity-50 transition-colors shrink-0"
+                  >
+                    {syncingAllData ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>전체 내보내는 중...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Cloud className="w-3.5 h-3.5" />
+                        <span>현재 데이터 전체 시트 생성/내보내기</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
 
