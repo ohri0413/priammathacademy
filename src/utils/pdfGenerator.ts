@@ -9,9 +9,16 @@ export const calculateMonthlySummary = (
   summary: MonthlyAchievementSummary;
   records: AssignmentRecord[];
 } => {
-  const monthRecords = assignments.filter(
-    (a) => a.studentId === student.id && a.date.startsWith(yearMonth)
-  ).sort((a, b) => a.date.localeCompare(b.date));
+  const safeStudent = {
+    id: student?.id || '',
+    name: student?.name || '학생',
+    school: student?.school || '미지정',
+    grade: student?.grade || '중2'
+  };
+
+  const monthRecords = (assignments || []).filter(
+    (a) => a && a.studentId === safeStudent.id && typeof a.date === 'string' && a.date.startsWith(yearMonth)
+  ).sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
 
   const totalClasses = monthRecords.length;
   const absentClasses = monthRecords.filter((a) => a.isAbsent).length;
@@ -35,7 +42,7 @@ export const calculateMonthlySummary = (
   // Build a summary teacher comment
   let defaultComment = '';
   if (assignmentCompletionRate >= 90) {
-    defaultComment = `${student.name} 학생은 이번 달 성실하게 모든 수학 과제를 완수하며 높은 학업 성취도를 보였습니다. 꾸준한 수학 학습 태도를 계속 격려해 주세요.`;
+    defaultComment = `${safeStudent.name} 학생은 이번 달 성실하게 모든 수학 과제를 완수하며 높은 학업 성취도를 보였습니다. 꾸준한 수학 학습 태도를 계속 격려해 주세요.`;
   } else if (assignmentCompletionRate >= 70) {
     defaultComment = `대체로 수학 과제 수행이 양호하였으나, 일부 고난도 문항 오답 정리 및 취약 유형 복습에 조금 더 집중이 필요합니다. 원에서도 지속적으로 1:1 클리닉을 진행하겠습니다.`;
   } else {
@@ -44,10 +51,10 @@ export const calculateMonthlySummary = (
 
   return {
     summary: {
-      studentId: student.id,
-      studentName: student.name,
-      school: student.school,
-      grade: student.grade,
+      studentId: safeStudent.id,
+      studentName: safeStudent.name,
+      school: safeStudent.school,
+      grade: safeStudent.grade,
       yearMonth,
       totalClasses,
       attendedClasses,

@@ -1,6 +1,27 @@
 import React, { useState } from 'react';
 import { AcademySettings } from '../types';
-import { X, Settings, Download, RotateCcw, Plus, Trash2, Check, AlertCircle } from 'lucide-react';
+import {
+  X,
+  Settings,
+  Download,
+  RotateCcw,
+  Plus,
+  Trash2,
+  Check,
+  AlertCircle,
+  Cloud,
+  FileCode,
+  Copy,
+  RefreshCw,
+  ExternalLink
+} from 'lucide-react';
+import {
+  getGasWebAppUrl,
+  setGasWebAppUrl,
+  isGasConfigured,
+  SAMPLE_APPS_SCRIPT_CODE
+} from '../utils/googleSheetsApi';
+import { copyToClipboard } from '../utils/smsGenerator';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -11,6 +32,8 @@ interface SettingsModalProps {
   onUpdateTeachers: (teachers: string[]) => void;
   onExportData: () => void;
   onResetData: () => void;
+  onSyncWithGoogleSheets?: (targetUrl?: string) => Promise<boolean>;
+  isSyncing?: boolean;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -21,14 +44,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSaveSettings,
   onUpdateTeachers,
   onExportData,
-  onResetData
+  onResetData,
+  onSyncWithGoogleSheets,
+  isSyncing = false
 }) => {
-  const [activeTab, setActiveTab] = useState<'general' | 'templates' | 'teachers' | 'data'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'templates' | 'teachers' | 'sheets' | 'data'>('sheets');
   const [academyName, setAcademyName] = useState(settings.academyName);
   const [academyPhone, setAcademyPhone] = useState(settings.academyPhone);
   const [regularSmsTemplate, setRegularSmsTemplate] = useState(settings.regularSmsTemplate);
   const [examSmsTemplate, setExamSmsTemplate] = useState(settings.examSmsTemplate);
   const [absentSmsTemplate, setAbsentSmsTemplate] = useState(settings.absentSmsTemplate);
+
+  const [gasUrl, setGasUrl] = useState(getGasWebAppUrl());
+  const [testingConnection, setTestingConnection] = useState(false);
 
   const [newTeacherName, setNewTeacherName] = useState('');
   const [teachers, setTeachers] = useState<string[]>(teacherList);
@@ -46,7 +74,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       absentSmsTemplate
     });
     onUpdateTeachers(teachers);
+    setGasWebAppUrl(gasUrl);
     onClose();
+  };
+
+  const handleSaveGasUrlAndTest = async () => {
+    setGasWebAppUrl(gasUrl);
+    if (!gasUrl.trim() || gasUrl.includes('여기에_복사한')) {
+      setInfoMsg('올바른 구글 앱스 스크립트 웹 앱 URL을 입력해주세요.');
+      setTimeout(() => setInfoMsg(null), 3000);
+      return;
+    }
+
+    setTestingConnection(true);
+    try {
+      if (onSyncWithGoogleSheets) {
+        const success = await onSyncWithGoogleSheets(gasUrl.trim());
+        if (success) {
+          setInfoMsg('✅ 구글 스프레드시트와 성공적으로 연결 및 동기화되었습니다!');
+        } else {
+          setInfoMsg('⚠️ 연결에 실패했습니다. 웹 앱 URL과 배포 권한(모든 사용자)을 확인해주세요.');
+        }
+      }
+    } catch (e: any) {
+      setInfoMsg(`❌ 연결 오류: ${e?.message || '네트워크 확인 필요'}`);
+    } finally {
+      setTestingConnection(false);
+      setTimeout(() => setInfoMsg(null), 4000);
+    }
+  };
+
+  const handleCopyScriptCode = async () => {
+    const success = await copyToClipboard(SAMPLE_APPS_SCRIPT_CODE);
+    if (success) {
+      setInfoMsg('📋 Apps Script 연동 코드가 복사되었습니다! 구글 시트 Apps Script에 붙여넣으세요.');
+      setTimeout(() => setInfoMsg(null), 3500);
+    }
   };
 
   const handleAddTeacher = () => {
@@ -74,16 +137,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
           <div className="flex items-center gap-2">
-            <div className="p-2 rounded-lg bg-slate-200 text-slate-700">
+            <div className="p-2 rounded-lg bg-blue-100 text-blue-700">
               <Settings className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-900">학원 설정 & 문자 템플릿</h2>
-              <p className="text-xs text-slate-500">학원 기본 정보, 알림 문자 양식, 선생님 목록 및 데이터 백업</p>
+              <h2 className="text-lg font-bold text-slate-900">학원 설정 & 구글 시트 연동</h2>
+              <p className="text-xs text-slate-500">실시간 데이터 연동, 기본 정보, 알림 문자 양식 관리</p>
             </div>
           </div>
           <button
@@ -95,10 +158,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Tab switcher */}
-        <div className="flex border-b border-slate-200 px-6 gap-4 text-xs font-semibold text-slate-500 bg-slate-50/30">
+        <div className="flex border-b border-slate-200 px-6 gap-4 text-xs font-semibold text-slate-500 bg-slate-50/30 overflow-x-auto">
+          <button
+            onClick={() => setActiveTab('sheets')}
+            className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'sheets'
+                ? 'border-emerald-600 text-emerald-700 font-bold'
+                : 'border-transparent hover:text-slate-800'
+            }`}
+          >
+            <Cloud className="w-4 h-4 text-emerald-600" />
+            <span>구글 시트 연동</span>
+            {isGasConfigured() && (
+              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+            )}
+          </button>
           <button
             onClick={() => setActiveTab('general')}
-            className={`py-3 border-b-2 transition-colors ${
+            className={`py-3 border-b-2 transition-colors whitespace-nowrap ${
               activeTab === 'general'
                 ? 'border-blue-600 text-blue-600 font-bold'
                 : 'border-transparent hover:text-slate-800'
@@ -108,7 +185,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
           <button
             onClick={() => setActiveTab('templates')}
-            className={`py-3 border-b-2 transition-colors ${
+            className={`py-3 border-b-2 transition-colors whitespace-nowrap ${
               activeTab === 'templates'
                 ? 'border-blue-600 text-blue-600 font-bold'
                 : 'border-transparent hover:text-slate-800'
@@ -118,7 +195,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
           <button
             onClick={() => setActiveTab('teachers')}
-            className={`py-3 border-b-2 transition-colors ${
+            className={`py-3 border-b-2 transition-colors whitespace-nowrap ${
               activeTab === 'teachers'
                 ? 'border-blue-600 text-blue-600 font-bold'
                 : 'border-transparent hover:text-slate-800'
@@ -128,7 +205,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
           <button
             onClick={() => setActiveTab('data')}
-            className={`py-3 border-b-2 transition-colors ${
+            className={`py-3 border-b-2 transition-colors whitespace-nowrap ${
               activeTab === 'data'
                 ? 'border-blue-600 text-blue-600 font-bold'
                 : 'border-transparent hover:text-slate-800'
@@ -140,7 +217,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Info banner if any */}
         {infoMsg && (
-          <div className="mx-6 mt-3 p-2.5 bg-blue-50 border border-blue-200 text-blue-800 text-xs rounded-xl flex items-center gap-2">
+          <div className="mx-6 mt-3 p-3 bg-blue-50 border border-blue-200 text-blue-900 text-xs rounded-xl flex items-center gap-2">
             <Check className="w-4 h-4 text-blue-600 shrink-0" />
             <span>{infoMsg}</span>
           </div>
@@ -148,6 +225,91 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Content */}
         <div className="p-6 max-h-[70vh] overflow-y-auto space-y-4">
+          {activeTab === 'sheets' && (
+            <div className="space-y-5">
+              <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Cloud className="w-5 h-5 text-emerald-600" />
+                    <h3 className="text-sm font-bold text-slate-900">구글 스프레드시트 실시간 연동 (Apps Script API)</h3>
+                  </div>
+                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                    isGasConfigured()
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                      : 'bg-amber-100 text-amber-800 border border-amber-300'
+                  }`}>
+                    {isGasConfigured() ? '연동 활성화됨' : 'URL 설정 필요'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  구글 스프레드시트의 <strong>Apps Script 웹 앱 URL</strong>을 등록하면 모든 학생 DB, 과제 입력 내역, 결석 및 문자 기록이 구글 시트와 <strong>실시간 양방향 동기화</strong>됩니다. 새로고침하거나 다른 기기에서 접속해도 동일한 최신 데이터가 유지됩니다.
+                </p>
+
+                {/* URL Input */}
+                <div className="space-y-1.5 pt-2">
+                  <label className="block text-xs font-bold text-slate-700">
+                    구글 앱스 스크립트 웹 앱 URL <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      placeholder="https://script.google.com/macros/s/.../exec"
+                      value={gasUrl}
+                      onChange={(e) => setGasUrl(e.target.value)}
+                      className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSaveGasUrlAndTest}
+                      disabled={testingConnection || isSyncing}
+                      className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl flex items-center gap-1.5 shadow-xs disabled:opacity-50 transition-colors shrink-0"
+                    >
+                      {testingConnection || isSyncing ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>연결 중...</span>
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>연결 & 동기화 테스트</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Step-by-Step Guide for Google Apps Script */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <FileCode className="w-4 h-4 text-blue-600" />
+                    <h4 className="text-xs font-bold text-slate-800">구글 스프레드시트 연동 방법 (간편 4단계)</h4>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCopyScriptCode}
+                    className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-white hover:bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-1 shadow-xs transition-colors"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Apps Script 연동 코드 복사</span>
+                  </button>
+                </div>
+
+                <ol className="text-xs text-slate-600 space-y-1.5 list-decimal pl-4 leading-relaxed">
+                  <li>사용하실 <strong>구글 스프레드시트</strong>를 열고 상단 메뉴 <strong>[확장 프로그램] &gt; [Apps Script]</strong>를 클릭합니다.</li>
+                  <li>기존 코드를 모두 지우고, 위의 <strong>[Apps Script 연동 코드 복사]</strong> 버튼을 눌러 복사한 코드를 그대로 붙여넣습니다.</li>
+                  <li>우측 상단 <strong>[배포] &gt; [새 배포]</strong>를 클릭하고, 유형 톱니바퀴에서 <strong>[웹 앱(Web app)]</strong>을 선택합니다.</li>
+                  <li>
+                    액세스 권한(Who has access)을 반드시 <strong>&quot;모든 사용자(Anyone)&quot;</strong>로 설정한 후 배포를 완료합니다.
+                  </li>
+                  <li>완료 화면에 표시된 <strong>&quot;웹 앱 URL&quot;</strong>을 복사하여 위 입력란에 붙여넣고 [연결 &amp; 동기화]를 누르시면 즉시 연동됩니다!</li>
+                </ol>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'general' && (
             <div className="space-y-4">
               <div>

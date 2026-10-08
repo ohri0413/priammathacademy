@@ -34,7 +34,11 @@ export const UncheckedAlerts: React.FC<UncheckedAlertsProps> = ({
   };
 
   // Find all students who have class on targetDay
-  const scheduledStudents = students.filter((s) => s.classDays.includes(targetDay));
+  const scheduledStudents = students.filter((s) => {
+    if (!s) return false;
+    const days = Array.isArray(s.classDays) ? s.classDays : [];
+    return days.includes(targetDay);
+  });
 
   // Determine which ones are checked (have assignment or marked absent on that date)
   const checkedStudentIds = new Set(

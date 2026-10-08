@@ -7,7 +7,10 @@ import {
   FileText,
   History,
   Settings,
-  GraduationCap
+  GraduationCap,
+  Cloud,
+  CloudOff,
+  RefreshCw
 } from 'lucide-react';
 
 export type NavTab = 'students' | 'assignments' | 'unchecked' | 'sms' | 'reports' | 'logs';
@@ -19,6 +22,9 @@ interface NavbarProps {
   pendingSmsCount: number;
   onOpenSettings: () => void;
   academyName: string;
+  isSyncing: boolean;
+  isGoogleSheetsConnected: boolean;
+  onManualSync: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -27,7 +33,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   uncheckedCount,
   pendingSmsCount,
   onOpenSettings,
-  academyName
+  academyName,
+  isSyncing,
+  isGoogleSheetsConnected,
+  onManualSync
 }) => {
   const navItems = [
     {
@@ -90,8 +99,40 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </div>
 
-          {/* Quick Settings & Info */}
+          {/* Quick Settings & Google Sheets Sync */}
           <div className="flex items-center gap-2">
+            {/* Google Sheets Sync Button */}
+            {isGoogleSheetsConnected ? (
+              <button
+                onClick={onManualSync}
+                disabled={isSyncing}
+                className="px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+                title="구글 시트와 실시간 동기화 (새로고침)"
+              >
+                {isSyncing ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                    <span>동기화 중...</span>
+                  </>
+                ) : (
+                  <>
+                    <Cloud className="w-3.5 h-3.5 text-emerald-600" />
+                    <span className="hidden sm:inline">구글 시트 연동됨</span>
+                    <RefreshCw className="w-3 h-3 text-emerald-500 hover:rotate-180 transition-transform" />
+                  </>
+                )}
+              </button>
+            ) : (
+              <button
+                onClick={onOpenSettings}
+                className="px-3 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
+                title="구글 시트 실시간 연동 설정하기"
+              >
+                <CloudOff className="w-3.5 h-3.5 text-amber-600" />
+                <span className="hidden sm:inline">시트 연동 필요</span>
+              </button>
+            )}
+
             <button
               onClick={onOpenSettings}
               className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-1.5 text-sm font-medium"

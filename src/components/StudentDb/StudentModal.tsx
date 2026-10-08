@@ -27,6 +27,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({
   const [examTeacher, setExamTeacher] = useState('');
   const [memo, setMemo] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const gradeOptions = ['초등', '중1', '중2', '중3', '고1', '고2', '고3', 'N수생'];
 
@@ -75,22 +76,27 @@ export const StudentModal: React.FC<StudentModalProps> = ({
       return;
     }
     setErrorMsg(null);
+    setIsSubmitting(true);
 
-    onSave(
-      {
-        name: name.trim(),
-        school: school.trim() || '미지정',
-        grade,
-        studentPhone: studentPhone.trim() || '010-0000-0000',
-        parentPhone: parentPhone.trim() || '010-0000-0000',
-        classDays,
-        regularTeacher: regularTeacher || teacherList[0] || '미배정',
-        examTeacher: examTeacher || regularTeacher || teacherList[0] || '미배정',
-        memo: memo.trim()
-      },
-      studentToEdit?.id
-    );
-    onClose();
+    try {
+      onSave(
+        {
+          name: name.trim(),
+          school: school.trim() || '미지정',
+          grade,
+          studentPhone: studentPhone.trim() || '010-0000-0000',
+          parentPhone: parentPhone.trim() || '010-0000-0000',
+          classDays,
+          regularTeacher: regularTeacher || teacherList[0] || '미배정',
+          examTeacher: examTeacher || regularTeacher || teacherList[0] || '미배정',
+          memo: memo.trim()
+        },
+        studentToEdit?.id
+      );
+      onClose();
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -283,6 +289,45 @@ export const StudentModal: React.FC<StudentModalProps> = ({
             />
           </div>
 
+          {/* Live Preview Section (실시간 등록 정보 & 문자 미리보기) */}
+          <div className="p-4 bg-slate-50 rounded-xl border border-blue-100 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
+                실시간 학생 정보 미리보기 (Live Preview)
+              </span>
+              <span className="text-[11px] text-blue-600 font-medium">입력 즉시 반영</span>
+            </div>
+
+            <div className="bg-white p-3 rounded-lg border border-slate-200 text-xs space-y-1.5">
+              <div className="flex items-center justify-between font-bold text-slate-900">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm text-blue-700">{name.trim() || '(이름 입력 대기)'}</span>
+                  <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-normal text-[11px]">
+                    {school.trim() || '학교'} · {grade}
+                  </span>
+                </div>
+                <span className="font-mono text-slate-600">{parentPhone.trim() || '학부모 연락처'}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 text-slate-500 text-[11px] pt-1 border-t border-slate-100">
+                <span className="font-semibold text-slate-700">수업 요일:</span>
+                {classDays.length > 0 ? (
+                  classDays.map((d) => (
+                    <span key={d} className="px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 font-bold border border-blue-200">
+                      {d}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-rose-500 font-bold">선택 필요</span>
+                )}
+                <span className="mx-1 text-slate-300">|</span>
+                <span>정규: <strong className="text-slate-700">{regularTeacher || '미지정'}</strong></span>
+                <span className="mx-1 text-slate-300">|</span>
+                <span>시험대비: <strong className="text-amber-700">{examTeacher || '미지정'}</strong></span>
+              </div>
+            </div>
+          </div>
+
           {/* Footer Buttons */}
           <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
             <button
@@ -294,9 +339,17 @@ export const StudentModal: React.FC<StudentModalProps> = ({
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs transition-colors"
+              disabled={isSubmitting}
+              className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg shadow-xs transition-colors flex items-center gap-1.5"
             >
-              {studentToEdit ? '수정 완료' : '학생 등록'}
+              {isSubmitting ? (
+                <>
+                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                  <span>저장 중...</span>
+                </>
+              ) : (
+                <span>{studentToEdit ? '수정 완료' : '학생 등록'}</span>
+              )}
             </button>
           </div>
         </form>

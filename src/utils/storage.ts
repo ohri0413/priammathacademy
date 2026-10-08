@@ -1,5 +1,6 @@
 import { Student, AssignmentRecord, ActivityLog, AcademySettings, DayOfWeek } from '../types';
 import { INITIAL_STUDENTS, INITIAL_ASSIGNMENTS, INITIAL_LOGS, INITIAL_SETTINGS, INITIAL_TEACHERS } from '../data/initialData';
+import { sanitizeStudent, sanitizeAssignment } from './normalize';
 
 const STORAGE_KEYS = {
   VERSION: 'primamath_version',
@@ -106,7 +107,11 @@ export const loadStudents = (): Student[] => {
       safeStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(INITIAL_STUDENTS));
       return INITIAL_STUDENTS;
     }
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.map(sanitizeStudent);
+    }
+    return INITIAL_STUDENTS;
   } catch (e) {
     console.warn('Failed to load students, using initial data:', e);
     return INITIAL_STUDENTS;
@@ -115,7 +120,8 @@ export const loadStudents = (): Student[] => {
 
 export const saveStudents = (students: Student[]): void => {
   try {
-    safeStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(students));
+    const sanitized = students.map(sanitizeStudent);
+    safeStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(sanitized));
   } catch (e) {
     console.warn('Failed to save students:', e);
   }
@@ -129,7 +135,11 @@ export const loadAssignments = (): AssignmentRecord[] => {
       safeStorage.setItem(STORAGE_KEYS.ASSIGNMENTS, JSON.stringify(INITIAL_ASSIGNMENTS));
       return INITIAL_ASSIGNMENTS;
     }
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.map(sanitizeAssignment);
+    }
+    return INITIAL_ASSIGNMENTS;
   } catch (e) {
     console.warn('Failed to load assignments, using initial data:', e);
     return INITIAL_ASSIGNMENTS;
@@ -138,7 +148,8 @@ export const loadAssignments = (): AssignmentRecord[] => {
 
 export const saveAssignments = (assignments: AssignmentRecord[]): void => {
   try {
-    safeStorage.setItem(STORAGE_KEYS.ASSIGNMENTS, JSON.stringify(assignments));
+    const sanitized = assignments.map(sanitizeAssignment);
+    safeStorage.setItem(STORAGE_KEYS.ASSIGNMENTS, JSON.stringify(sanitized));
   } catch (e) {
     console.warn('Failed to save assignments:', e);
   }

@@ -8,7 +8,7 @@ import {
   AcademySettings
 } from '../../types';
 import { getDayOfWeek, getTodayDateString } from '../../utils/storage';
-import { generateSmsContent, copyToClipboard } from '../../utils/smsGenerator';
+import { generateSmsContent, calculateSmsBytes, copyToClipboard } from '../../utils/smsGenerator';
 import { BatchAssignmentModal } from './BatchAssignmentModal';
 import {
   Calendar,
@@ -22,7 +22,11 @@ import {
   BookOpen,
   ShieldCheck,
   CheckCircle2,
-  Clock
+  Clock,
+  RefreshCw,
+  Eye,
+  EyeOff,
+  MessageSquare
 } from 'lucide-react';
 
 interface AssignmentManagerProps {
@@ -48,12 +52,17 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
   const [mode, setMode] = useState<AssignmentMode>('regular');
   const [selectedDate, setSelectedDate] = useState<string>(getTodayDateString());
   const [selectedDay, setSelectedDay] = useState<DayOfWeek>(getDayOfWeek(getTodayDateString()));
-  const [selectedTeacher, setSelectedTeacher] = useState<string>(teacherList[0] || '');
+  const [selectedTeacher, setSelectedTeacher] = useState<string>(teacherList[0] || '최광민 선생님');
+  const [showAllStudents, setShowAllStudents] = useState<boolean>(false);
 
   // Batch modal state
   const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
   // Toast state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  // Saving student ID state for loading spinner
+  const [savingStudentId, setSavingStudentId] = useState<string | null>(null);
+  // Live SMS Preview open state per student
+  const [openPreviewIds, setOpenPreviewIds] = useState<Record<string, boolean>>({});
 
   // In-app confirm modal state (replaces window.confirm)
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -81,23 +90,37 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
     }, 2500);
   };
 
+  const togglePreview = (studentId: string) => {
+    setOpenPreviewIds((prev) => ({
+      ...prev,
+      [studentId]: !prev[studentId]
+    }));
+  };
+
   // Filter students by selected day and teacher
   const matchingStudents = students.filter((s) => {
-    const hasDay = s.classDays.includes(selectedDay);
+    if (!s) return false;
+    const days = Array.isArray(s.classDays) ? s.classDays : [];
+    const hasDay = days.includes(selectedDay);
+    const regTeacher = (s.regularTeacher || '').trim();
+    const exTeacher = (s.examTeacher || regTeacher || '').trim();
     const matchesTeacher =
       mode === 'regular'
-        ? s.regularTeacher === selectedTeacher
-        : s.examTeacher === selectedTeacher;
+        ? regTeacher === selectedTeacher
+        : exTeacher === selectedTeacher;
     return hasDay && matchesTeacher;
   });
+
+  const displayedStudents = showAllStudents ? students : matchingStudents;
 
   // Local draft state for each student row to allow immediate editing
   const [drafts, setDrafts] = useState<Record<string, Partial<AssignmentRecord>>>({});
 
-  // Sync drafts when matching students, date, or mode changes
+  // Sync drafts when displayed students, date, or mode changes
   useEffect(() => {
     const newDrafts: Record<string, Partial<AssignmentRecord>> = {};
-    matchingStudents.forEach((student) => {
+    displayedStudents.forEach((student) => {
+      if (!student) return;
       const existing = assignments.find(
         (a) =>
           a.studentId === student.id &&
@@ -108,10 +131,9 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
       if (existing) {
         newDrafts[student.id] = { ...existing };
       } else {
-        // default template for new assignment (removed status, score, comment)
         newDrafts[student.id] = {
           studentId: student.id,
-          studentName: student.name,
+          studentName: student.name || '학생',
           date: selectedDate,
           dayOfWeek: selectedDay,
           mode,
@@ -128,7 +150,7 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
       }
     });
     setDrafts(newDrafts);
-  }, [matchingStudents.length, selectedDate, selectedDay, selectedTeacher, mode, assignments]);
+  }, [displayedStudents.length, showAllStudents, selectedDate, selectedDay, selectedTeacher, mode, assignments]);
 
   const updateDraft = (studentId: string, field: keyof AssignmentRecord, value: any) => {
     setDrafts((prev) => ({
@@ -140,43 +162,48 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
     }));
   };
 
-  const handleSaveStudentAssignment = (student: Student) => {
+  const handleSaveStudentAssignment = async (student: Student) => {
     const draft = drafts[student.id];
     if (!draft) return;
 
-    const recordToSave: AssignmentRecord = {
-      id: draft.id || `asg-${Date.now()}-${student.id}`,
-      studentId: student.id,
-      studentName: student.name,
-      date: selectedDate,
-      dayOfWeek: selectedDay,
-      mode,
-      teacher: selectedTeacher,
-      bookTitle: draft.isAbsent ? '-' : draft.bookTitle || '지정 교재',
-      pageRange: draft.isAbsent ? '-' : draft.pageRange || '',
-      content: draft.isAbsent ? '결석으로 인한 과제 미부여' : draft.content || '',
-      dueDate: draft.dueDate || selectedDate,
-      isAbsent: !!draft.isAbsent,
-      absentReason: draft.absentReason || '',
-      status: draft.isAbsent ? 'absent' : 'completed',
-      smsSent: !!draft.smsSent,
-      smsSentAt: draft.smsSent ? (draft.smsSentAt || new Date().toISOString()) : undefined,
-      createdAt: draft.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+    setSavingStudentId(student.id);
+    try {
+      const recordToSave: AssignmentRecord = {
+        id: draft.id || `asg-${Date.now()}-${student.id}`,
+        studentId: student.id,
+        studentName: student.name,
+        date: selectedDate,
+        dayOfWeek: selectedDay,
+        mode,
+        teacher: selectedTeacher,
+        bookTitle: draft.isAbsent ? '-' : draft.bookTitle || '지정 교재',
+        pageRange: draft.isAbsent ? '-' : draft.pageRange || '',
+        content: draft.isAbsent ? '결석으로 인한 과제 미부여' : draft.content || '',
+        dueDate: draft.dueDate || selectedDate,
+        isAbsent: !!draft.isAbsent,
+        absentReason: draft.absentReason || '',
+        status: draft.isAbsent ? 'absent' : 'completed',
+        smsSent: !!draft.smsSent,
+        smsSentAt: draft.smsSent ? (draft.smsSentAt || new Date().toISOString()) : undefined,
+        createdAt: draft.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
 
-    onSaveAssignment(recordToSave);
-    onLogActivity(
-      draft.isAbsent ? 'ATTENDANCE' : 'ASSIGNMENT',
-      draft.isAbsent ? '결석 처리' : (draft.id ? '과제 수정' : '과제 등록'),
-      selectedTeacher,
-      draft.isAbsent
-        ? `${student.name} 학생 결석 처리 (${draft.absentReason || '사유 미기재'})`
-        : `${student.name} 학생 [${mode === 'exam' ? '내신대비' : '정규'}] ${recordToSave.bookTitle} 과제 저장`,
-      student.name
-    );
+      await onSaveAssignment(recordToSave);
+      onLogActivity(
+        draft.isAbsent ? 'ATTENDANCE' : 'ASSIGNMENT',
+        draft.isAbsent ? '결석 처리' : (draft.id ? '과제 수정' : '과제 등록'),
+        selectedTeacher,
+        draft.isAbsent
+          ? `${student.name} 학생 결석 처리 (${draft.absentReason || '사유 미기재'})`
+          : `${student.name} 학생 [${mode === 'exam' ? '내신대비' : '정규'}] ${recordToSave.bookTitle} 과제 저장`,
+        student.name
+      );
 
-    showToast(`${student.name} 학생의 과제 정보가 저장되었습니다.`);
+      showToast(`${student.name} 학생의 과제 정보가 저장되었습니다.`);
+    } finally {
+      setSavingStudentId(null);
+    }
   };
 
   const handleDeleteAssignmentRecord = (student: Student) => {
@@ -489,37 +516,76 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
       </div>
 
       {/* Target Student Count Bar */}
-      <div className="flex items-center justify-between px-1">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1">
         <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
           <span>
-            {selectedDay}요일 수업 · {selectedTeacher}
+            {showAllStudents ? '전체 원생 목록' : `${selectedDay}요일 수업 · ${selectedTeacher}`}
           </span>
           <span className="text-xs px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
-            총 {matchingStudents.length}명
+            총 {displayedStudents.length}명
           </span>
         </div>
-        <p className="text-xs text-slate-400">
-          결석 체크 시 과제 명단에서 자동 제외되며, 결석 알림 문자가 생성됩니다.
-        </p>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowAllStudents(!showAllStudents)}
+            className={`text-xs px-3 py-1.5 rounded-xl border font-semibold transition-colors flex items-center gap-1.5 ${
+              showAllStudents
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            <span>{showAllStudents ? '✓ 전체 원생 보는 중' : `전체 원생 목록 보기 (${students.length}명)`}</span>
+          </button>
+        </div>
       </div>
 
       {/* Students Assignment Input Cards */}
-      {matchingStudents.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center">
-          <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
-          <h3 className="text-base font-bold text-slate-800">해당 조건의 학생이 없습니다</h3>
-          <p className="text-xs text-slate-500 mt-1">
-            [{selectedDay}요일]에 [{selectedTeacher}] 수업으로 배정된 학생이 없습니다.
-            <br />
-            다른 요일이나 선생님을 선택하시거나 [학생 DB 관리]에서 학생의 수업 요일 및 선생님을 확인하세요.
-          </p>
+      {displayedStudents.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center space-y-3">
+          <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto" />
+          <div>
+            <h3 className="text-base font-bold text-slate-800">해당 조건의 학생이 없습니다</h3>
+            <p className="text-xs text-slate-500 mt-1">
+              [{selectedDay}요일]에 [{selectedTeacher}] 수업으로 배정된 학생이 없습니다.
+            </p>
+          </div>
+          <button
+            onClick={() => setShowAllStudents(true)}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-colors shadow-xs"
+          >
+            전체 원생 목록 보기 ({students.length}명)
+          </button>
         </div>
       ) : (
         <div className="space-y-4">
-          {matchingStudents.map((student) => {
+          {displayedStudents.map((student) => {
+            if (!student) return null;
             const draft = drafts[student.id] || {};
             const isAbsent = !!draft.isAbsent;
             const hasSaved = !!draft.id;
+            const isPreviewOpen = !!openPreviewIds[student.id];
+
+            // Real-time preview content
+            const liveSmsContent = generateSmsContent(
+              {
+                studentName: student.name,
+                date: selectedDate,
+                dayOfWeek: selectedDay,
+                mode,
+                teacher: selectedTeacher,
+                bookTitle: draft.bookTitle,
+                pageRange: draft.pageRange,
+                content: draft.content,
+                dueDate: draft.dueDate || selectedDate,
+                isAbsent,
+                absentReason: draft.absentReason
+              },
+              student,
+              settings
+            );
+            const liveBytes = calculateSmsBytes(liveSmsContent);
 
             return (
               <div
@@ -542,7 +608,7 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-lg bg-blue-600 text-white font-bold text-xs flex items-center justify-center">
-                      {student.name.slice(0, 1)}
+                      {(student.name || '학생').slice(0, 1)}
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
@@ -566,9 +632,11 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
                           </span>
                         )}
                       </div>
-                      <div className="text-xs text-slate-500 mt-0.5">
-                        학부모: <span className="font-mono text-slate-700">{student.parentPhone}</span>
-                        {student.memo && <span className="ml-2 text-slate-400">| 메모: {student.memo}</span>}
+                      <div className="text-xs text-slate-500 mt-0.5 flex flex-wrap items-center gap-2">
+                        <span>학부모: <strong className="font-mono text-slate-700">{student.parentPhone}</strong></span>
+                        <span>수업: {(student.classDays || []).join(', ')}</span>
+                        <span>정규: {student.regularTeacher}</span>
+                        {student.memo && <span className="text-slate-400">| 메모: {student.memo}</span>}
                       </div>
                     </div>
                   </div>
@@ -594,7 +662,7 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
                   </div>
                 </div>
 
-                {/* Assignment Input Body (Simplified per request: 교재명만, 상태/점수/코멘트 삭제) */}
+                {/* Assignment Input Body */}
                 <div className="p-5">
                   {isAbsent ? (
                     <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl space-y-3">
@@ -614,13 +682,10 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
                           className="w-full px-3 py-2 text-sm border border-rose-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-rose-500"
                         />
                       </div>
-                      <p className="text-xs text-rose-600">
-                        * 결석 학생에게는 과제 대신 '결석 안내 및 보충 일정 알림 문자'가 생성됩니다.
-                      </p>
                     </div>
                   ) : (
                     <div className="space-y-3.5">
-                      {/* Row 1: Book & Range (단원 제거, 교재명만 입력) */}
+                      {/* Row 1: Book & Range */}
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div className="sm:col-span-2">
                           <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -677,6 +742,24 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
                     </div>
                   )}
 
+                  {/* Real-Time SMS Preview Panel (실시간 문자 미리보기) */}
+                  {isPreviewOpen && (
+                    <div className="mt-4 p-4 bg-slate-50 rounded-xl border border-blue-200 animate-in fade-in zoom-in-95 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                          <MessageSquare className="w-4 h-4 text-blue-600" />
+                          <span>학부모 발송 문자 실시간 미리보기 (Live SMS Preview)</span>
+                        </span>
+                        <span className="text-[11px] font-mono text-slate-500">
+                          수신: <strong className="text-slate-800">{student.parentPhone}</strong> | 용량: <strong className="text-blue-600">{liveBytes} Byte</strong> ({liveBytes > 90 ? 'LMS 장문' : 'SMS 단문'})
+                        </span>
+                      </div>
+                      <div className="bg-white p-3 rounded-lg border border-slate-200 text-xs font-mono text-slate-800 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">
+                        {liveSmsContent}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Bottom Row Actions */}
                   <div className="flex flex-wrap items-center justify-between gap-3 pt-4 mt-4 border-t border-slate-100">
                     {/* Sent status toggle */}
@@ -709,6 +792,28 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
                         <span className="hidden sm:inline">삭제</span>
                       </button>
 
+                      {/* Live SMS Preview Toggle */}
+                      <button
+                        onClick={() => togglePreview(student.id)}
+                        className={`px-3 py-2 text-xs font-semibold rounded-xl border transition-colors flex items-center gap-1.5 shadow-xs ${
+                          isPreviewOpen
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        {isPreviewOpen ? (
+                          <>
+                            <EyeOff className="w-3.5 h-3.5" />
+                            <span>미리보기 닫기</span>
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>문자 미리보기</span>
+                          </>
+                        )}
+                      </button>
+
                       {/* 1-Click Copy SMS Button */}
                       <button
                         onClick={() => handleCopySms(student)}
@@ -721,10 +826,20 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
                       {/* Save Button */}
                       <button
                         onClick={() => handleSaveStudentAssignment(student)}
-                        className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors flex items-center gap-1.5 shadow-xs"
+                        disabled={savingStudentId === student.id}
+                        className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-xl transition-colors flex items-center gap-1.5 shadow-xs"
                       >
-                        <Save className="w-3.5 h-3.5" />
-                        <span>과제 저장</span>
+                        {savingStudentId === student.id ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>저장 중...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Save className="w-3.5 h-3.5" />
+                            <span>과제 저장</span>
+                          </>
+                        )}
                       </button>
                     </div>
                   </div>

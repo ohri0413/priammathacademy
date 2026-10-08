@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Student, AssignmentRecord, AcademySettings } from '../../types';
 import { calculateMonthlySummary, exportMonthlyReportToPdf } from '../../utils/pdfGenerator';
 import { copyToClipboard } from '../../utils/smsGenerator';
@@ -32,25 +32,41 @@ export const MonthlyReportView: React.FC<MonthlyReportViewProps> = ({
   const currentMonthStr = '2026-10';
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthStr);
   const [selectedStudentId, setSelectedStudentId] = useState<string>(
-    students[0]?.id || ''
+    () => students[0]?.id || ''
   );
   const [customComment, setCustomComment] = useState<Record<string, string>>({});
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Sync selected student ID if students list changes or initial id was empty
+  useEffect(() => {
+    if (students.length > 0) {
+      const exists = students.some((s) => s.id === selectedStudentId);
+      if (!exists) {
+        setSelectedStudentId(students[0].id);
+      }
+    }
+  }, [students, selectedStudentId]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 2500);
   };
 
-  const selectedStudent = students.find((s) => s.id === selectedStudentId);
+  const selectedStudent =
+    students.find((s) => s.id === selectedStudentId) ||
+    (students.length > 0 ? students[0] : null);
 
   // Month selector options
   const monthOptions = ['2026-10', '2026-09', '2026-08', '2026-07'];
 
   if (!selectedStudent) {
     return (
-      <div className="bg-white p-8 rounded-2xl border text-center text-slate-500">
-        등록된 학생이 없습니다.
+      <div className="bg-white p-12 rounded-3xl border border-dashed border-slate-300 text-center space-y-3">
+        <FileText className="w-10 h-10 text-slate-400 mx-auto" />
+        <h3 className="text-base font-bold text-slate-800">등록된 학생이 없습니다</h3>
+        <p className="text-xs text-slate-500">
+          [학생 DB 관리] 메뉴에서 먼저 학생을 등록해주세요.
+        </p>
       </div>
     );
   }

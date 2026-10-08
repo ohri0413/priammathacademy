@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Student,
   AssignmentRecord,
@@ -23,6 +23,13 @@ import {
   getTodayDateString,
   getDayOfWeek
 } from './utils/storage';
+import {
+  fetchGoogleSheetsData,
+  postGoogleSheetsData,
+  isGasConfigured,
+  setGasWebAppUrl
+} from './utils/googleSheetsApi';
+import { sanitizeStudent, sanitizeAssignment } from './utils/normalize';
 import { Navbar, NavTab } from './components/Navbar';
 import { StudentList } from './components/StudentDb/StudentList';
 import { StudentModal } from './components/StudentDb/StudentModal';
@@ -32,16 +39,21 @@ import { SmsCenter } from './components/SmsCenter/SmsCenter';
 import { MonthlyReportView } from './components/MonthlyReport/MonthlyReportView';
 import { ActivityLogView } from './components/Logs/ActivityLogView';
 import { SettingsModal } from './components/SettingsModal';
+import { RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('assignments');
 
   // Application Data States
-  const [students, setStudents] = useState<Student[]>([]);
-  const [assignments, setAssignments] = useState<AssignmentRecord[]>([]);
-  const [logs, setLogs] = useState<ActivityLog[]>([]);
-  const [settings, setSettings] = useState<AcademySettings>(loadSettings());
-  const [teachers, setTeachers] = useState<string[]>([]);
+  const [students, setStudents] = useState<Student[]>(() => loadStudents());
+  const [assignments, setAssignments] = useState<AssignmentRecord[]>(() => loadAssignments());
+  const [logs, setLogs] = useState<ActivityLog[]>(() => loadLogs());
+  const [settings, setSettings] = useState<AcademySettings>(() => loadSettings());
+  const [teachers, setTeachers] = useState<string[]>(() => loadTeachers());
+
+  // Sync state
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [syncStatusText, setSyncStatusText] = useState<string | null>(null);
 
   // Student Modal state
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
@@ -57,14 +69,64 @@ export default function App() {
     studentName: string;
   }>({ isOpen: false, studentId: '', studentName: '' });
 
-  // Load from storage on mount
-  useEffect(() => {
-    setStudents(loadStudents());
-    setAssignments(loadAssignments());
-    setLogs(loadLogs());
-    setSettings(loadSettings());
-    setTeachers(loadTeachers());
+  // Sync data from Google Sheets (GET request)
+  const syncFromGoogleSheets = useCallback(async (customUrl?: string): Promise<boolean> => {
+    if (customUrl) {
+      setGasWebAppUrl(customUrl);
+    }
+    if (!isGasConfigured()) {
+      return false;
+    }
+
+    setIsSyncing(true);
+    setSyncStatusText('구글 시트에서 데이터 불러오는 중...');
+    try {
+      const data = await fetchGoogleSheetsData();
+      if (data) {
+        if (Array.isArray(data.students) && data.students.length > 0) {
+          const safeStudents = data.students.map(sanitizeStudent);
+          setStudents(safeStudents);
+          saveStudents(safeStudents);
+        }
+        if (Array.isArray(data.assignments) && data.assignments.length > 0) {
+          const safeAssignments = data.assignments.map(sanitizeAssignment);
+          setAssignments(safeAssignments);
+          saveAssignments(safeAssignments);
+        }
+        if (Array.isArray(data.logs) && data.logs.length > 0) {
+          setLogs(data.logs);
+          saveLogs(data.logs);
+        }
+        if (data.settings && data.settings.academyName) {
+          setSettings(data.settings);
+          saveSettings(data.settings);
+        }
+        if (Array.isArray(data.teachers) && data.teachers.length > 0) {
+          setTeachers(data.teachers);
+          saveTeachers(data.teachers);
+        }
+        setSyncStatusText('구글 시트 동기화 완료!');
+        setTimeout(() => setSyncStatusText(null), 3000);
+        return true;
+      }
+      return false;
+    } catch (err: any) {
+      console.warn('Google Sheets sync error:', err);
+      setSyncStatusText('구글 시트 연결 실패 (오프라인 모드 유지)');
+      setTimeout(() => setSyncStatusText(null), 4000);
+      return false;
+    } finally {
+      setIsSyncing(false);
+    }
   }, []);
+
+  // Load from local storage immediately on mount, then fetch from Google Sheets if configured
+  useEffect(() => {
+    // Initial fetch from Google Sheets if configured
+    if (isGasConfigured()) {
+      syncFromGoogleSheets();
+    }
+  }, [syncFromGoogleSheets]);
 
   // Helper for adding activity log
   const handleLogActivity = (
@@ -76,6 +138,11 @@ export default function App() {
   ) => {
     const newLog = addActivityLog(category, action, operator, details, studentName);
     setLogs((prev) => [newLog, ...prev].slice(0, 500));
+
+    // Async background sync for logs
+    if (isGasConfigured()) {
+      postGoogleSheetsData('saveLog', newLog).catch(() => {});
+    }
   };
 
   // Student DB Handlers
@@ -89,15 +156,17 @@ export default function App() {
     setIsStudentModalOpen(true);
   };
 
-  const handleSaveStudent = (
+  const handleSaveStudent = async (
     studentData: Omit<Student, 'id' | 'createdAt' | 'updatedAt'>,
     id?: string
   ) => {
     const now = new Date().toISOString();
     let updatedList: Student[];
+    let targetStudent: Student;
 
     if (id) {
       // Edit
+      targetStudent = { ...studentData, id, createdAt: now, updatedAt: now };
       updatedList = students.map((s) =>
         s.id === id ? { ...s, ...studentData, updatedAt: now } : s
       );
@@ -110,13 +179,13 @@ export default function App() {
       );
     } else {
       // Create
-      const newStudent: Student = {
+      targetStudent = {
         ...studentData,
         id: `std-${Date.now()}`,
         createdAt: now,
         updatedAt: now
       };
-      updatedList = [newStudent, ...students];
+      updatedList = [targetStudent, ...students];
       handleLogActivity(
         'STUDENT',
         '신규 학생 등록',
@@ -128,6 +197,23 @@ export default function App() {
 
     setStudents(updatedList);
     saveStudents(updatedList);
+
+    // Google Sheets POST sync safely in background without blocking or overwriting local state
+    if (isGasConfigured()) {
+      setIsSyncing(true);
+      setSyncStatusText('구글 시트에 학생 정보 동기화 중...');
+      postGoogleSheetsData('saveStudent', targetStudent)
+        .then(() => {
+          setSyncStatusText('구글 시트 저장 완료!');
+          setTimeout(() => setSyncStatusText(null), 2500);
+        })
+        .catch((e) => {
+          console.warn('Google Sheets save warning:', e);
+        })
+        .finally(() => {
+          setIsSyncing(false);
+        });
+    }
   };
 
   const handleDeleteStudent = (id: string, name: string) => {
@@ -138,7 +224,7 @@ export default function App() {
     });
   };
 
-  const confirmDeleteStudent = () => {
+  const confirmDeleteStudent = async () => {
     const id = deleteDialog.studentId;
     const name = deleteDialog.studentName;
     const updatedList = students.filter((s) => s.id !== id);
@@ -152,17 +238,34 @@ export default function App() {
       name
     );
     setDeleteDialog({ isOpen: false, studentId: '', studentName: '' });
+
+    // Google Sheets DELETE sync
+    if (isGasConfigured()) {
+      setIsSyncing(true);
+      setSyncStatusText('구글 시트에서 학생 삭제 중...');
+      try {
+        await postGoogleSheetsData('deleteStudent', { id });
+        await syncFromGoogleSheets();
+      } catch (e) {
+        console.error('Google Sheets delete error:', e);
+      } finally {
+        setIsSyncing(false);
+      }
+    }
   };
 
-  const handleQuickChangeExamTeacher = (studentId: string, newTeacher: string) => {
+  const handleQuickChangeExamTeacher = async (studentId: string, newTeacher: string) => {
     const target = students.find((s) => s.id === studentId);
     if (!target) return;
 
     const oldTeacher = target.examTeacher;
+    const updatedStudent: Student = {
+      ...target,
+      examTeacher: newTeacher,
+      updatedAt: new Date().toISOString()
+    };
     const updatedList = students.map((s) =>
-      s.id === studentId
-        ? { ...s, examTeacher: newTeacher, updatedAt: new Date().toISOString() }
-        : s
+      s.id === studentId ? updatedStudent : s
     );
     setStudents(updatedList);
     saveStudents(updatedList);
@@ -173,17 +276,28 @@ export default function App() {
       `${target.name} 학생의 시험기간 전담 선생님 변경: ${oldTeacher} -> ${newTeacher}`,
       target.name
     );
+
+    // Google Sheets sync
+    if (isGasConfigured()) {
+      setIsSyncing(true);
+      try {
+        await postGoogleSheetsData('saveStudent', updatedStudent);
+      } catch (e) {
+        console.error('Failed to sync teacher change:', e);
+      } finally {
+        setIsSyncing(false);
+      }
+    }
   };
 
   // Assignment Handlers
-  const handleSaveAssignment = (record: AssignmentRecord) => {
+  const handleSaveAssignment = async (record: AssignmentRecord) => {
     const exists = assignments.some((a) => a.id === record.id);
     let updated: AssignmentRecord[];
 
     if (exists) {
       updated = assignments.map((a) => (a.id === record.id ? record : a));
     } else {
-      // also check if there is an existing record for the same student, date, and mode
       const sameSlotIndex = assignments.findIndex(
         (a) =>
           a.studentId === record.studentId &&
@@ -200,24 +314,74 @@ export default function App() {
 
     setAssignments(updated);
     saveAssignments(updated);
+
+    // Google Sheets POST sync
+    if (isGasConfigured()) {
+      setIsSyncing(true);
+      setSyncStatusText('구글 시트에 과제 저장 중...');
+      try {
+        await postGoogleSheetsData('saveAssignment', record);
+        await syncFromGoogleSheets();
+      } catch (e) {
+        console.error('Google Sheets assignment save error:', e);
+      } finally {
+        setIsSyncing(false);
+      }
+    }
   };
 
-  const handleDeleteAssignment = (id: string, studentName: string) => {
+  const handleDeleteAssignment = async (id: string, studentName: string) => {
     const updated = assignments.filter((a) => a.id !== id);
     setAssignments(updated);
     saveAssignments(updated);
+
+    // Google Sheets DELETE sync
+    if (isGasConfigured()) {
+      setIsSyncing(true);
+      setSyncStatusText('구글 시트에서 과제 삭제 중...');
+      try {
+        await postGoogleSheetsData('deleteAssignment', { id });
+        await syncFromGoogleSheets();
+      } catch (e) {
+        console.error('Google Sheets assignment delete error:', e);
+      } finally {
+        setIsSyncing(false);
+      }
+    }
   };
 
   // Settings Handlers
-  const handleSaveSettings = (newSettings: AcademySettings) => {
+  const handleSaveSettings = async (newSettings: AcademySettings) => {
     setSettings(newSettings);
     saveSettings(newSettings);
     handleLogActivity('SYSTEM', '학원 설정 수정', '원장/관리자', '학원 정보 및 문자 템플릿 변경');
+
+    if (isGasConfigured()) {
+      setIsSyncing(true);
+      try {
+        await postGoogleSheetsData('saveSettings', { settings: newSettings, teachers });
+      } catch (e) {
+        console.error('Google Sheets settings save error:', e);
+      } finally {
+        setIsSyncing(false);
+      }
+    }
   };
 
-  const handleUpdateTeachers = (newTeachers: string[]) => {
+  const handleUpdateTeachers = async (newTeachers: string[]) => {
     setTeachers(newTeachers);
     saveTeachers(newTeachers);
+
+    if (isGasConfigured()) {
+      setIsSyncing(true);
+      try {
+        await postGoogleSheetsData('saveSettings', { settings, teachers: newTeachers });
+      } catch (e) {
+        console.error('Google Sheets teachers save error:', e);
+      } finally {
+        setIsSyncing(false);
+      }
+    }
   };
 
   const handleResetData = () => {
@@ -263,7 +427,22 @@ export default function App() {
         pendingSmsCount={pendingSmsCount}
         onOpenSettings={() => setIsSettingsModalOpen(true)}
         academyName={settings.academyName}
+        isSyncing={isSyncing}
+        isGoogleSheetsConnected={isGasConfigured()}
+        onManualSync={() => syncFromGoogleSheets()}
       />
+
+      {/* Real-time Sync Status Toast / Bar */}
+      {syncStatusText && (
+        <div className="bg-slate-900 text-white text-xs px-4 py-2 text-center flex items-center justify-center gap-2 transition-all">
+          {isSyncing ? (
+            <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+          ) : (
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+          )}
+          <span>{syncStatusText}</span>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -371,6 +550,8 @@ export default function App() {
         onUpdateTeachers={handleUpdateTeachers}
         onExportData={exportAllData}
         onResetData={handleResetData}
+        onSyncWithGoogleSheets={syncFromGoogleSheets}
+        isSyncing={isSyncing}
       />
     </div>
   );

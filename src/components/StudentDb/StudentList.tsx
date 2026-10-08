@@ -36,13 +36,19 @@ export const StudentList: React.FC<StudentListProps> = ({
   const [selectedTeacherFilter, setSelectedTeacherFilter] = useState<string>('ALL');
 
   const filteredStudents = students.filter((s) => {
-    const matchesSearch =
-      s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.school.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.parentPhone.includes(searchTerm) ||
-      s.studentPhone.includes(searchTerm);
+    const studentName = String(s?.name || '');
+    const studentSchool = String(s?.school || '');
+    const parentPhone = String(s?.parentPhone || '');
+    const studentPhone = String(s?.studentPhone || '');
+    const classDays = Array.isArray(s?.classDays) ? s.classDays : [];
 
-    const matchesDay = selectedDayFilter === 'ALL' || s.classDays.includes(selectedDayFilter);
+    const matchesSearch =
+      studentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      studentSchool.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      parentPhone.includes(searchTerm) ||
+      studentPhone.includes(searchTerm);
+
+    const matchesDay = selectedDayFilter === 'ALL' || classDays.includes(selectedDayFilter);
     const matchesGrade = selectedGradeFilter === 'ALL' || s.grade === selectedGradeFilter;
     const matchesTeacher =
       selectedTeacherFilter === 'ALL' ||
@@ -52,7 +58,9 @@ export const StudentList: React.FC<StudentListProps> = ({
     return matchesSearch && matchesDay && matchesGrade && matchesTeacher;
   });
 
-  const allGrades = Array.from(new Set(students.map((s) => s.grade))).sort();
+  const allGrades = Array.from(
+    new Set(students.map((s) => s?.grade || '중2').filter(Boolean))
+  ).sort();
 
   return (
     <div className="space-y-4">
@@ -239,7 +247,7 @@ export const StudentList: React.FC<StudentListProps> = ({
                     {/* Class Days */}
                     <td className="px-3 py-3.5">
                       <div className="flex flex-wrap gap-1">
-                        {student.classDays.map((d) => (
+                        {(Array.isArray(student.classDays) ? student.classDays : []).map((d) => (
                           <span
                             key={d}
                             className="w-6 h-6 rounded-md bg-blue-50 text-blue-700 border border-blue-200 text-xs font-bold flex items-center justify-center"
