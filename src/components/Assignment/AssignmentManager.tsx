@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Student,
   AssignmentRecord,
@@ -97,73 +97,89 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
     }));
   };
 
-  // Filter students by selected day and teacher
-  const matchingStudents = students.filter((s) => {
-    if (!s) return false;
-    const days = Array.isArray(s.classDays) ? s.classDays : [];
-    const hasDay = days.includes(selectedDay);
-    const regTeacher = (s.regularTeacher || '').trim();
-    const exTeacher = (s.examTeacher || regTeacher || '').trim();
-    const matchesTeacher =
-      mode === 'regular'
-        ? regTeacher === selectedTeacher
-        : exTeacher === selectedTeacher;
-    return hasDay && matchesTeacher;
-  });
+  // Filter students by selected day and teacher (memoized to avoid new array allocations on render)
+  const matchingStudents = useMemo(() => {
+    return students.filter((s) => {
+      if (!s) return false;
+      const days = Array.isArray(s.classDays) ? s.classDays : [];
+      const hasDay = days.includes(selectedDay);
+      const regTeacher = (s.regularTeacher || '').trim();
+      const exTeacher = (s.examTeacher || regTeacher || '').trim();
+      const matchesTeacher =
+        mode === 'regular'
+          ? regTeacher === selectedTeacher
+          : exTeacher === selectedTeacher;
+      return hasDay && matchesTeacher;
+    });
+  }, [students, selectedDay, mode, selectedTeacher]);
 
-  const displayedStudents = showAllStudents ? students : matchingStudents;
+  const displayedStudents = useMemo(() => {
+    return showAllStudents ? students : matchingStudents;
+  }, [showAllStudents, students, matchingStudents]);
 
   // Local draft state for each student row to allow immediate editing
   const [drafts, setDrafts] = useState<Record<string, Partial<AssignmentRecord>>>({});
+  // Track student rows where user is actively typing so background refresh doesn't overwrite
+  const dirtyStudentsRef = useRef<Set<string>>(new Set());
 
-  // Sync drafts when displayed students, date, or mode changes
-  useEffect(() => {
-    const newDrafts: Record<string, Partial<AssignmentRecord>> = {};
-    displayedStudents.forEach((student) => {
-      if (!student) return;
+  // Helper to compute effective draft for a student (checks local drafts -> existing saved assignments -> empty default)
+  const getEffectiveDraft = useCallback(
+    (student: Student): Partial<AssignmentRecord> => {
+      if (drafts[student.id]) {
+        return drafts[student.id];
+      }
       const existing = assignments.find(
         (a) =>
           a.studentId === student.id &&
           a.date === selectedDate &&
           a.mode === mode
       );
-
       if (existing) {
-        newDrafts[student.id] = { ...existing };
-      } else {
-        newDrafts[student.id] = {
-          studentId: student.id,
-          studentName: student.name || '학생',
-          date: selectedDate,
-          dayOfWeek: selectedDay,
-          mode,
-          teacher: selectedTeacher,
-          bookTitle: '',
-          content: '',
-          pageRange: '',
-          dueDate: selectedDate,
-          isAbsent: false,
-          absentReason: '',
-          status: 'completed',
-          smsSent: false
-        };
+        return { ...existing };
       }
-    });
-    setDrafts(newDrafts);
-  }, [displayedStudents.length, showAllStudents, selectedDate, selectedDay, selectedTeacher, mode, assignments]);
+      return {
+        studentId: student.id,
+        studentName: student.name || '학생',
+        date: selectedDate,
+        dayOfWeek: selectedDay,
+        mode,
+        teacher: selectedTeacher,
+        bookTitle: '',
+        content: '',
+        pageRange: '',
+        dueDate: selectedDate,
+        isAbsent: false,
+        absentReason: '',
+        status: 'completed',
+        smsSent: false
+      };
+    },
+    [drafts, assignments, selectedDate, mode, selectedDay, selectedTeacher]
+  );
+
+  // Reset dirty tracking and local drafts when date, day, teacher, or mode changes
+  useEffect(() => {
+    dirtyStudentsRef.current.clear();
+    setDrafts({});
+  }, [selectedDate, selectedDay, selectedTeacher, mode]);
 
   const updateDraft = (studentId: string, field: keyof AssignmentRecord, value: any) => {
-    setDrafts((prev) => ({
-      ...prev,
-      [studentId]: {
-        ...prev[studentId],
-        [field]: value
-      }
-    }));
+    dirtyStudentsRef.current.add(studentId);
+    setDrafts((prev) => {
+      const student = displayedStudents.find((s) => s.id === studentId) || students.find((s) => s.id === studentId);
+      const base = prev[studentId] || (student ? getEffectiveDraft(student) : {});
+      return {
+        ...prev,
+        [studentId]: {
+          ...base,
+          [field]: value
+        }
+      };
+    });
   };
 
   const handleSaveStudentAssignment = async (student: Student) => {
-    const draft = drafts[student.id];
+    const draft = getEffectiveDraft(student);
     if (!draft) return;
 
     setSavingStudentId(student.id);
@@ -188,6 +204,13 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
         createdAt: draft.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
+
+      dirtyStudentsRef.current.delete(student.id);
+      setDrafts((prev) => {
+        const next = { ...prev };
+        delete next[student.id];
+        return next;
+      });
 
       await onSaveAssignment(recordToSave);
       onLogActivity(
@@ -215,25 +238,12 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
     );
     if (!existing) {
       // Just reset draft
-      setDrafts((prev) => ({
-        ...prev,
-        [student.id]: {
-          studentId: student.id,
-          studentName: student.name,
-          date: selectedDate,
-          dayOfWeek: selectedDay,
-          mode,
-          teacher: selectedTeacher,
-          bookTitle: '',
-          content: '',
-          pageRange: '',
-          dueDate: selectedDate,
-          isAbsent: false,
-          absentReason: '',
-          status: 'completed',
-          smsSent: false
-        }
-      }));
+      dirtyStudentsRef.current.delete(student.id);
+      setDrafts((prev) => {
+        const next = { ...prev };
+        delete next[student.id];
+        return next;
+      });
       showToast(`${student.name} 학생의 입력 내용이 초기화되었습니다.`);
       return;
     }
@@ -243,6 +253,12 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
       title: '과제 기록 삭제',
       message: `${student.name} 학생의 ${selectedDate} 과제 기록을 삭제하시겠습니까?`,
       onConfirm: () => {
+        dirtyStudentsRef.current.delete(student.id);
+        setDrafts((prev) => {
+          const next = { ...prev };
+          delete next[student.id];
+          return next;
+        });
         onDeleteAssignment(existing.id, student.name);
         onLogActivity(
           'ASSIGNMENT',
@@ -258,7 +274,7 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
   };
 
   const handleCopySms = async (student: Student) => {
-    const draft = drafts[student.id];
+    const draft = getEffectiveDraft(student);
     if (!draft) return;
 
     const tempRecord: AssignmentRecord = {
@@ -317,6 +333,15 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
     dueDate: string;
     studentIds: string[];
   }) => {
+    setDrafts((prev) => {
+      const next = { ...prev };
+      batchData.studentIds.forEach((sid) => {
+        dirtyStudentsRef.current.delete(sid);
+        delete next[sid];
+      });
+      return next;
+    });
+
     batchData.studentIds.forEach((sid) => {
       const student = students.find((s) => s.id === sid);
       if (!student) return;
@@ -562,7 +587,7 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
         <div className="space-y-4">
           {displayedStudents.map((student) => {
             if (!student) return null;
-            const draft = drafts[student.id] || {};
+            const draft = getEffectiveDraft(student);
             const isAbsent = !!draft.isAbsent;
             const hasSaved = !!draft.id;
             const isPreviewOpen = !!openPreviewIds[student.id];

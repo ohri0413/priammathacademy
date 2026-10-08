@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Student,
   AssignmentRecord,
@@ -54,6 +54,8 @@ export default function App() {
   // Sync state
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncStatusText, setSyncStatusText] = useState<string | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const isSyncingRef = useRef<boolean>(false);
 
   // Student Modal state
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
@@ -70,88 +72,89 @@ export default function App() {
   }>({ isOpen: false, studentId: '', studentName: '' });
 
   // Sync data from Google Sheets (GET request)
-  const syncFromGoogleSheets = useCallback(async (customUrl?: string): Promise<boolean> => {
-    if (customUrl) {
-      setGasWebAppUrl(customUrl);
-    }
-    if (!isGasConfigured()) {
-      return false;
-    }
-
-    setIsSyncing(true);
-    setSyncStatusText('구글 시트에서 데이터 불러오는 중...');
-    try {
-      const data = await fetchGoogleSheetsData();
-      if (data) {
-        if (Array.isArray(data.students) && data.students.length > 0) {
-          const safeStudents = data.students.map(sanitizeStudent);
-          setStudents((prev) => {
-            const merged = [...safeStudents];
-            prev.forEach((p) => {
-              const idx = merged.findIndex(
-                (m) => m.id === p.id || (m.name === p.name && m.studentPhone === p.studentPhone)
-              );
-              if (idx === -1) {
-                merged.push(p);
-              } else if (p.updatedAt && merged[idx].updatedAt && new Date(p.updatedAt) > new Date(merged[idx].updatedAt)) {
-                merged[idx] = p;
-              }
-            });
-            saveStudents(merged);
-            return merged;
-          });
-        }
-        if (Array.isArray(data.assignments) && data.assignments.length > 0) {
-          const safeAssignments = data.assignments.map(sanitizeAssignment);
-          setAssignments((prev) => {
-            const merged = [...safeAssignments];
-            prev.forEach((p) => {
-              const idx = merged.findIndex(
-                (m) => m.id === p.id || (m.studentId === p.studentId && m.date === p.date && m.mode === p.mode)
-              );
-              if (idx === -1) {
-                merged.push(p);
-              } else if (p.updatedAt && merged[idx].updatedAt && new Date(p.updatedAt) > new Date(merged[idx].updatedAt)) {
-                merged[idx] = p;
-              }
-            });
-            saveAssignments(merged);
-            return merged;
-          });
-        }
-        if (Array.isArray(data.logs) && data.logs.length > 0) {
-          setLogs(data.logs);
-          saveLogs(data.logs);
-        }
-        if (data.settings && data.settings.academyName) {
-          setSettings(data.settings);
-          saveSettings(data.settings);
-        }
-        if (Array.isArray(data.teachers) && data.teachers.length > 0) {
-          setTeachers(data.teachers);
-          saveTeachers(data.teachers);
-        }
-        setSyncStatusText('구글 시트 동기화 완료!');
-        setTimeout(() => setSyncStatusText(null), 3000);
-        return true;
+  const syncFromGoogleSheets = useCallback(
+    async (options?: { customUrl?: string; isSilent?: boolean }): Promise<boolean> => {
+      if (options?.customUrl) {
+        setGasWebAppUrl(options.customUrl);
       }
-      return false;
-    } catch (err: any) {
-      console.warn('Google Sheets sync error:', err);
-      setSyncStatusText('구글 시트 연결 실패 (오프라인 모드 유지)');
-      setTimeout(() => setSyncStatusText(null), 4000);
-      return false;
-    } finally {
-      setIsSyncing(false);
-    }
-  }, []);
+      if (!isGasConfigured()) {
+        return false;
+      }
 
-  // Load from local storage immediately on mount, then fetch from Google Sheets if configured
+      if (isSyncingRef.current) {
+        return false;
+      }
+
+      isSyncingRef.current = true;
+      setIsSyncing(true);
+      if (!options?.isSilent) {
+        setSyncStatusText('구글 시트에서 최신 데이터 불러오는 중...');
+      }
+
+      try {
+        const data = await fetchGoogleSheetsData();
+        if (data) {
+          if (Array.isArray(data.students) && data.students.length > 0) {
+            const safeStudents = data.students.map(sanitizeStudent);
+            setStudents(safeStudents);
+            saveStudents(safeStudents);
+          }
+          if (Array.isArray(data.assignments)) {
+            const safeAssignments = data.assignments.map(sanitizeAssignment);
+            setAssignments(safeAssignments);
+            saveAssignments(safeAssignments);
+          }
+          if (Array.isArray(data.logs) && data.logs.length > 0) {
+            setLogs(data.logs);
+            saveLogs(data.logs);
+          }
+          if (data.settings && data.settings.academyName) {
+            setSettings(data.settings);
+            saveSettings(data.settings);
+          }
+          if (Array.isArray(data.teachers) && data.teachers.length > 0) {
+            setTeachers(data.teachers);
+            saveTeachers(data.teachers);
+          }
+          setLastSyncedAt(new Date());
+          if (!options?.isSilent) {
+            setSyncStatusText('구글 시트 최신 데이터 동기화 완료!');
+            setTimeout(() => setSyncStatusText(null), 2500);
+          }
+          return true;
+        }
+        return false;
+      } catch (err: any) {
+        console.warn('Google Sheets sync error:', err);
+        if (!options?.isSilent) {
+          setSyncStatusText('구글 시트 연결 실패 (오프라인 모드 유지)');
+          setTimeout(() => setSyncStatusText(null), 4000);
+        }
+        return false;
+      } finally {
+        isSyncingRef.current = false;
+        setIsSyncing(false);
+      }
+    },
+    []
+  );
+
+  // 2. [데이터 자동 새로고침(Polling) 추가]
+  // 30초~1분 주기로 백그라운드에서 구글 시트 최신 데이터를 다시 불러오도록(Auto-refresh) 설정
   useEffect(() => {
     // Initial fetch from Google Sheets if configured
     if (isGasConfigured()) {
-      syncFromGoogleSheets();
+      syncFromGoogleSheets({ isSilent: false });
     }
+
+    // 35초 주기 백그라운드 자동 동기화 (Polling)
+    const intervalId = setInterval(() => {
+      if (isGasConfigured() && !isSyncingRef.current) {
+        syncFromGoogleSheets({ isSilent: true });
+      }
+    }, 35000);
+
+    return () => clearInterval(intervalId);
   }, [syncFromGoogleSheets]);
 
   // Helper for adding activity log
@@ -229,8 +232,10 @@ export default function App() {
       setIsSyncing(true);
       setSyncStatusText('구글 시트에 학생 정보 동기화 중...');
       postGoogleSheetsData('saveStudent', targetStudent)
-        .then(() => {
-          setSyncStatusText('구글 시트 저장 완료!');
+        .then(async () => {
+          // 3. [데이터 등록 후 즉시 동기화] 즉시 시트 데이터를 다시 GET해와서 화면 목록 업데이트
+          await syncFromGoogleSheets({ isSilent: true });
+          setSyncStatusText('구글 시트 학생 저장 및 동기화 완료!');
           setTimeout(() => setSyncStatusText(null), 2500);
         })
         .catch((e) => {
@@ -271,7 +276,9 @@ export default function App() {
       setSyncStatusText('구글 시트에서 학생 삭제 중...');
       try {
         await postGoogleSheetsData('deleteStudent', { id });
-        setSyncStatusText('구글 시트 삭제 완료!');
+        // 3. [데이터 등록 후 즉시 동기화]
+        await syncFromGoogleSheets({ isSilent: true });
+        setSyncStatusText('구글 시트 삭제 및 동기화 완료!');
         setTimeout(() => setSyncStatusText(null), 2500);
       } catch (e) {
         console.error('Google Sheets delete error:', e);
@@ -309,6 +316,8 @@ export default function App() {
       setIsSyncing(true);
       try {
         await postGoogleSheetsData('saveStudent', updatedStudent);
+        // 3. [데이터 등록 후 즉시 동기화]
+        await syncFromGoogleSheets({ isSilent: true });
         setSyncStatusText('선생님 정보 시트 반영 완료');
         setTimeout(() => setSyncStatusText(null), 2500);
       } catch (e) {
@@ -350,7 +359,9 @@ export default function App() {
       setSyncStatusText('구글 시트에 과제 저장 중...');
       try {
         await postGoogleSheetsData('saveAssignment', record);
-        setSyncStatusText('구글 시트 과제 저장 완료!');
+        // 3. [데이터 등록 후 즉시 동기화] 즉시 시트 데이터를 다시 GET해와서 화면 목록 업데이트
+        await syncFromGoogleSheets({ isSilent: true });
+        setSyncStatusText('구글 시트 과제 저장 및 최신 동기화 완료!');
         setTimeout(() => setSyncStatusText(null), 2500);
       } catch (e) {
         console.error('Google Sheets assignment save error:', e);
@@ -373,7 +384,9 @@ export default function App() {
       setSyncStatusText('구글 시트에서 과제 삭제 중...');
       try {
         await postGoogleSheetsData('deleteAssignment', { id });
-        setSyncStatusText('구글 시트 과제 삭제 완료!');
+        // 3. [데이터 등록 후 즉시 동기화]
+        await syncFromGoogleSheets({ isSilent: true });
+        setSyncStatusText('구글 시트 과제 삭제 및 동기화 완료!');
         setTimeout(() => setSyncStatusText(null), 2500);
       } catch (e) {
         console.error('Google Sheets assignment delete error:', e);
@@ -393,6 +406,7 @@ export default function App() {
       setIsSyncing(true);
       try {
         await postGoogleSheetsData('saveSettings', { settings: newSettings, teachers });
+        await syncFromGoogleSheets({ isSilent: true });
       } catch (e) {
         console.error('Google Sheets settings save error:', e);
       } finally {
@@ -409,6 +423,7 @@ export default function App() {
       setIsSyncing(true);
       try {
         await postGoogleSheetsData('saveSettings', { settings, teachers: newTeachers });
+        await syncFromGoogleSheets({ isSilent: true });
       } catch (e) {
         console.error('Google Sheets teachers save error:', e);
       } finally {
@@ -488,7 +503,8 @@ export default function App() {
         academyName={settings.academyName}
         isSyncing={isSyncing}
         isGoogleSheetsConnected={isGasConfigured()}
-        onManualSync={() => syncFromGoogleSheets()}
+        onManualSync={() => syncFromGoogleSheets({ isSilent: false })}
+        lastSyncedAt={lastSyncedAt}
       />
 
       {/* Real-time Sync Status Toast / Bar */}
@@ -609,7 +625,7 @@ export default function App() {
         onUpdateTeachers={handleUpdateTeachers}
         onExportData={exportAllData}
         onResetData={handleResetData}
-        onSyncWithGoogleSheets={syncFromGoogleSheets}
+        onSyncWithGoogleSheets={(targetUrl) => syncFromGoogleSheets({ customUrl: targetUrl, isSilent: false })}
         onSyncAllToGoogleSheets={handleSyncAllToGoogleSheets}
         isSyncing={isSyncing}
       />

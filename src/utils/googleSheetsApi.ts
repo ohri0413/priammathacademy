@@ -1,20 +1,31 @@
 import { Student, AssignmentRecord, ActivityLog, AcademySettings } from '../types';
 
-// 기본 웹 앱 URL 상수 (사용자가 직접 입력하거나 설정 창에서 변경 가능)
-export const DEFAULT_GAS_WEBAPP_URL = "여기에_복사한_구글_웹앱_URL_붙여넣기";
+// 1. [기본 API URL 고정]
+// 구글 웹 앱 URL을 로컬 스토리지에만 저장하지 않고 코드 상단에 기본 상수로 지정하여,
+// 어떤 기기나 새로운 사용자가 처음 접속해도 별도 설정 없이 바로 이 시트에서 데이터를 불러오도록 지원합니다.
+export const DEFAULT_SHEET_API_URL = "여기에_구글_웹앱_URL_입력";
+export const DEFAULT_GAS_WEBAPP_URL = DEFAULT_SHEET_API_URL;
 
 const GAS_URL_STORAGE_KEY = 'primamath_gas_webapp_url';
 
 export const getGasWebAppUrl = (): string => {
+  // 1순위: 브라우저 로컬 스토리지에 개별 저장된 URL이 유효한지 확인
   try {
     const customUrl = localStorage.getItem(GAS_URL_STORAGE_KEY);
-    if (customUrl && customUrl.trim() && customUrl !== DEFAULT_GAS_WEBAPP_URL) {
+    if (
+      customUrl &&
+      customUrl.trim() &&
+      customUrl !== '여기에_구글_웹앱_URL_입력' &&
+      customUrl !== '여기에_복사한_구글_웹앱_URL_붙여넣기'
+    ) {
       return customUrl.trim();
     }
   } catch (e) {
     console.warn('Storage access warning:', e);
   }
-  return DEFAULT_GAS_WEBAPP_URL;
+
+  // 2순위: 코드 상단의 DEFAULT_SHEET_API_URL 반환 (새 기기나 새 브라우저 접속 시 즉시 적용)
+  return DEFAULT_SHEET_API_URL;
 };
 
 export const setGasWebAppUrl = (url: string): void => {
@@ -27,7 +38,16 @@ export const setGasWebAppUrl = (url: string): void => {
 
 export const isGasConfigured = (): boolean => {
   const url = getGasWebAppUrl();
-  return !!url && url !== DEFAULT_GAS_WEBAPP_URL && url.startsWith('https://script.google.com');
+  if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  if (
+    trimmed === '여기에_구글_웹앱_URL_입력' ||
+    trimmed === '여기에_복사한_구글_웹앱_URL_붙여넣기' ||
+    trimmed === ''
+  ) {
+    return false;
+  }
+  return trimmed.startsWith('https://script.google.com');
 };
 
 export interface SheetSyncData {

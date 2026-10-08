@@ -19,6 +19,7 @@ import {
   getGasWebAppUrl,
   setGasWebAppUrl,
   isGasConfigured,
+  DEFAULT_SHEET_API_URL,
   SAMPLE_APPS_SCRIPT_CODE
 } from '../utils/googleSheetsApi';
 import { copyToClipboard } from '../utils/smsGenerator';
@@ -83,8 +84,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleSaveGasUrlAndTest = async () => {
     setGasWebAppUrl(gasUrl);
-    if (!gasUrl.trim() || gasUrl.includes('여기에_복사한')) {
-      setInfoMsg('올바른 구글 앱스 스크립트 웹 앱 URL을 입력해주세요.');
+    if (
+      !gasUrl.trim() ||
+      gasUrl.includes('여기에_복사한') ||
+      gasUrl.includes('여기에_구글_웹앱') ||
+      !gasUrl.startsWith('https://script.google.com')
+    ) {
+      setInfoMsg('올바른 구글 앱스 스크립트 웹 앱 URL(https://script.google.com/macros/s/.../exec)을 입력해주세요.');
       setTimeout(() => setInfoMsg(null), 3000);
       return;
     }
@@ -94,9 +100,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       if (onSyncWithGoogleSheets) {
         const success = await onSyncWithGoogleSheets(gasUrl.trim());
         if (success) {
-          setInfoMsg('✅ 구글 스프레드시트와 성공적으로 연결 및 동기화되었습니다!');
+          setInfoMsg('✅ 구글 스프레드시트와 성공적으로 연결 및 최신 동기화되었습니다!');
         } else {
-          setInfoMsg('⚠️ 연결에 실패했습니다. 웹 앱 URL과 배포 권한(모든 사용자)을 확인해주세요.');
+          setInfoMsg('⚠️ 연결에 실패했습니다. 웹 앱 URL과 배포 권한(액세스 권한: 모든 사용자)을 확인해주세요.');
         }
       }
     } catch (e: any) {
@@ -298,6 +304,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       )}
                     </button>
                   </div>
+                  <p className="text-[11px] text-slate-500 pt-1">
+                    💡 코드 상단의 기본 상수(<code>DEFAULT_SHEET_API_URL</code>)에 URL을 입력해두시면, 스마트폰이나 다른 PC에서 첫 접속 시에도 별도 입력 없이 즉시 모든 기기가 자동 연동됩니다. 상단 <strong>[🔄 새로고침]</strong> 버튼 및 35초 주기 자동 새로고침(Auto-refresh)이 지원됩니다.
+                  </p>
                 </div>
 
                 {/* Full Sync action box */}

@@ -32,6 +32,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({
   const gradeOptions = ['초등', '중1', '중2', '중3', '고1', '고2', '고3', 'N수생'];
 
   useEffect(() => {
+    if (!isOpen) return;
     if (studentToEdit) {
       setName(studentToEdit.name);
       setSchool(studentToEdit.school);

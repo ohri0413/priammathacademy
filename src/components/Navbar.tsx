@@ -25,6 +25,7 @@ interface NavbarProps {
   isSyncing: boolean;
   isGoogleSheetsConnected: boolean;
   onManualSync: () => void;
+  lastSyncedAt?: Date | null;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -36,8 +37,17 @@ export const Navbar: React.FC<NavbarProps> = ({
   academyName,
   isSyncing,
   isGoogleSheetsConnected,
-  onManualSync
+  onManualSync,
+  lastSyncedAt
 }) => {
+  // Format last sync time string
+  const formatSyncTime = (date?: Date | null): string => {
+    if (!date) return '';
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    const hours = date.getHours().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+  };
+
   const navItems = [
     {
       id: 'assignments' as NavTab,
@@ -101,35 +111,45 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Quick Settings & Google Sheets Sync */}
           <div className="flex items-center gap-2">
-            {/* Google Sheets Sync Button */}
+            {/* 2. [데이터 자동 새로고침] 눈에 띄는 [🔄 새로고침] 버튼 */}
+            <button
+              onClick={onManualSync}
+              disabled={isSyncing}
+              className={`px-3 sm:px-3.5 py-1.5 sm:py-2 text-xs sm:text-sm font-bold rounded-xl transition-all flex items-center gap-1.5 shadow-sm active:scale-95 disabled:opacity-60 cursor-pointer ${
+                isGoogleSheetsConnected
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-200'
+                  : 'bg-slate-800 hover:bg-slate-900 text-white'
+              }`}
+              title="구글 시트 최신 데이터를 즉시 불러옵니다 (35초 자동 새로고침 작동 중)"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span className="font-bold">새로고침</span>
+              {lastSyncedAt && (
+                <span className="hidden lg:inline text-[11px] font-normal text-blue-100 bg-white/20 px-1.5 py-0.5 rounded-md">
+                  {formatSyncTime(lastSyncedAt)}
+                </span>
+              )}
+            </button>
+
+            {/* Google Sheets Status Badge / Button */}
             {isGoogleSheetsConnected ? (
               <button
-                onClick={onManualSync}
-                disabled={isSyncing}
-                className="px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs disabled:opacity-50"
-                title="구글 시트와 실시간 동기화 (새로고침)"
+                onClick={onOpenSettings}
+                className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-colors shadow-2xs"
+                title="구글 시트 연동 설정 확인 (자동 동기화 작동 중)"
               >
-                {isSyncing ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-600" />
-                    <span>동기화 중...</span>
-                  </>
-                ) : (
-                  <>
-                    <Cloud className="w-3.5 h-3.5 text-emerald-600" />
-                    <span className="hidden sm:inline">구글 시트 연동됨</span>
-                    <RefreshCw className="w-3 h-3 text-emerald-500 hover:rotate-180 transition-transform" />
-                  </>
-                )}
+                <Cloud className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="hidden md:inline">시트 연동됨</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
               </button>
             ) : (
               <button
                 onClick={onOpenSettings}
-                className="px-3 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
+                className="px-2.5 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition-colors flex items-center gap-1.5 shadow-2xs"
                 title="구글 시트 실시간 연동 설정하기"
               >
                 <CloudOff className="w-3.5 h-3.5 text-amber-600" />
-                <span className="hidden sm:inline">시트 연동 필요</span>
+                <span className="hidden sm:inline">시트 연동</span>
               </button>
             )}
 
