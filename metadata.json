@@ -1,0 +1,6 @@
+{
+  "name": "프리마 수학학원 - 학생 과제 & 알림 문자 관리 시스템",
+  "description": "프리마 수학학원 학생 DB 관리, 요일별·선생님별 수학 과제 체크, 결석 관리, 학부모 알림 문자 자동 생성, 누락 학생 확인 및 월간 성취도 PDF 리포트",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
