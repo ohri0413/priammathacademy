@@ -111,19 +111,19 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Quick Settings & Google Sheets Sync */}
           <div className="flex items-center gap-2">
-            {/* 2. [데이터 자동 새로고침] 눈에 띄는 [🔄 새로고침] 버튼 */}
+            {/* 4. [전체 데이터 실시간 동기화 및 수동 새로고침 UI] 눈에 띄는 [🔄 데이터 동기화] 버튼 */}
             <button
               onClick={onManualSync}
               disabled={isSyncing}
               className={`px-3 sm:px-3.5 py-1.5 sm:py-2 text-xs sm:text-sm font-bold rounded-xl transition-all flex items-center gap-1.5 shadow-sm active:scale-95 disabled:opacity-60 cursor-pointer ${
                 isGoogleSheetsConnected
-                  ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-200'
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-200 ring-2 ring-blue-300/50'
                   : 'bg-slate-800 hover:bg-slate-900 text-white'
               }`}
-              title="구글 시트 최신 데이터를 즉시 불러옵니다 (35초 자동 새로고침 작동 중)"
+              title="구글 스프레드시트에서 최신 데이터를 즉시 불러와 동기화합니다"
             >
               <RefreshCw className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span className="font-bold">새로고침</span>
+              <span className="font-bold">🔄 데이터 동기화</span>
               {lastSyncedAt && (
                 <span className="hidden lg:inline text-[11px] font-normal text-blue-100 bg-white/20 px-1.5 py-0.5 rounded-md">
                   {formatSyncTime(lastSyncedAt)}

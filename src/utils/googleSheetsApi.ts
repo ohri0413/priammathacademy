@@ -1,22 +1,28 @@
 import { Student, AssignmentRecord, ActivityLog, AcademySettings } from '../types';
 
-// 1. [기본 API URL 고정]
-// 구글 웹 앱 URL을 로컬 스토리지에만 저장하지 않고 코드 상단에 기본 상수로 지정하여,
-// 어떤 기기나 새로운 사용자가 처음 접속해도 별도 설정 없이 바로 이 시트에서 데이터를 불러오도록 지원합니다.
-export const DEFAULT_SHEET_API_URL = "여기에_구글_웹앱_URL_입력";
-export const DEFAULT_GAS_WEBAPP_URL = DEFAULT_SHEET_API_URL;
+/**
+ * 1. [구글 스프레드시트 API URL 하드코딩]
+ * 어떤 기기(핸드폰, 동료 PC)에서 접속하든 동일한 구글 시트 웹 앱을 통해 데이터를 읽고 씁니다.
+ * 구글 Apps Script 웹 앱 배포 URL을 아래 상수에 입력합니다.
+ */
+export const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby-EXAMPLE-REPLACE-WITH-YOUR-EXEC-URL/exec";
+
+// 하위 호환성을 위한 별칭 및 기본 상수 지정
+export const DEFAULT_SHEET_API_URL = GOOGLE_SCRIPT_URL;
+export const DEFAULT_GAS_WEBAPP_URL = GOOGLE_SCRIPT_URL;
 
 const GAS_URL_STORAGE_KEY = 'primamath_gas_webapp_url';
 
 export const getGasWebAppUrl = (): string => {
-  // 1순위: 브라우저 로컬 스토리지에 개별 저장된 URL이 유효한지 확인
+  // 1순위: 로컬 스토리지에 사용자가 직접 입력한 커스텀 URL이 유효한지 확인
   try {
     const customUrl = localStorage.getItem(GAS_URL_STORAGE_KEY);
     if (
       customUrl &&
       customUrl.trim() &&
       customUrl !== '여기에_구글_웹앱_URL_입력' &&
-      customUrl !== '여기에_복사한_구글_웹앱_URL_붙여넣기'
+      customUrl !== '여기에_복사한_구글_웹앱_URL_붙여넣기' &&
+      customUrl.startsWith('https://script.google.com')
     ) {
       return customUrl.trim();
     }
@@ -24,8 +30,8 @@ export const getGasWebAppUrl = (): string => {
     console.warn('Storage access warning:', e);
   }
 
-  // 2순위: 코드 상단의 DEFAULT_SHEET_API_URL 반환 (새 기기나 새 브라우저 접속 시 즉시 적용)
-  return DEFAULT_SHEET_API_URL;
+  // 2순위: 코드 상단의 GOOGLE_SCRIPT_URL 기본 상수 반환 (핸드폰/타 PC 접속 시 기본값)
+  return GOOGLE_SCRIPT_URL;
 };
 
 export const setGasWebAppUrl = (url: string): void => {
@@ -43,7 +49,8 @@ export const isGasConfigured = (): boolean => {
   if (
     trimmed === '여기에_구글_웹앱_URL_입력' ||
     trimmed === '여기에_복사한_구글_웹앱_URL_붙여넣기' ||
-    trimmed === ''
+    trimmed === '' ||
+    trimmed.includes('EXAMPLE-REPLACE-WITH-YOUR-EXEC-URL')
   ) {
     return false;
   }
@@ -59,7 +66,8 @@ export interface SheetSyncData {
 }
 
 /**
- * 구글 스프레드시트 데이터 불러오기 (GET)
+ * 4. 구글 스프레드시트 데이터 불러오기 (GET)
+ * 타 기기나 브라우저 캐시 문제를 방지하기 위해 타임스탬프 쿼리 및 no-store 적용
  */
 export const fetchGoogleSheetsData = async (): Promise<SheetSyncData | null> => {
   const url = getGasWebAppUrl();
@@ -68,7 +76,6 @@ export const fetchGoogleSheetsData = async (): Promise<SheetSyncData | null> => 
   }
 
   try {
-    // 캐시 방지 파라미터 추가
     const fetchUrl = `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
     const response = await fetch(fetchUrl, {
       method: 'GET',
@@ -80,29 +87,31 @@ export const fetchGoogleSheetsData = async (): Promise<SheetSyncData | null> => 
     });
 
     if (!response.ok) {
-      console.warn(`Google Sheets API responded with status: ${response.status}`);
+      console.warn(`Google Sheets API GET responded with status: ${response.status}`);
       return null;
     }
 
     const data = await response.json();
     return data;
   } catch (err) {
-    console.warn('Failed to fetch from Google Sheets (using local storage):', err);
+    console.warn('Failed to fetch from Google Sheets (local cache used):', err);
     return null;
   }
 };
 
 /**
- * 구글 스프레드시트에 데이터 저장하기 (POST)
- * CORS Preflight (OPTIONS) 문제를 방지하기 위해 Content-Type을 text/plain으로 전송합니다.
+ * 2. [데이터 저장(POST) 통신 방식 및 에러 방지 - CORS 완벽 대응]
+ * 구글 Apps Script로 데이터를 보낼 때 CORS 사전 요청(OPTIONS preflight) 차단 및 302 리다이렉트 에러를 방지합니다.
+ * Content-Type: 'text/plain;charset=utf-8'로 전송하며,
+ * 네트워크 오류가 나더라도 다음 로직(학부모 문자 발송 등)이 절대 중단되지 않도록 철저히 예외 처리합니다.
  */
 export const postGoogleSheetsData = async (
   action: 'saveStudent' | 'deleteStudent' | 'saveAssignment' | 'deleteAssignment' | 'syncAll' | 'saveSettings' | 'saveLog',
   payload: any
-): Promise<any> => {
+): Promise<{ success: boolean; error?: any; warning?: string }> => {
   const url = getGasWebAppUrl();
   if (!isGasConfigured()) {
-    return null;
+    return { success: false, warning: 'Google Sheets URL not configured' };
   }
 
   try {
@@ -112,6 +121,7 @@ export const postGoogleSheetsData = async (
       timestamp: new Date().toISOString()
     });
 
+    // CORS preflight를 유발하지 않도록 text/plain;charset=utf-8 사용
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -120,23 +130,24 @@ export const postGoogleSheetsData = async (
       body: bodyData,
       redirect: 'follow'
     }).catch((networkErr) => {
-      console.warn('Network or CORS warning during Google Sheets post:', networkErr);
+      // CORS 또는 네트워크 오류 시에도 UI 멈춤 방지
+      console.warn('Background Google Sheets POST network notice:', networkErr);
       return null;
     });
 
     if (!response) {
-      // In Google Apps Script, cross-origin 302 redirects can trigger opaque responses, but the POST was received
-      return { success: true, warning: 'Redirected without readable body' };
+      // Google Apps Script 특성상 교차 도메인 리다이렉트(302) 시 응답 헤더 차단이 생겨도 저장은 시트에서 완료됨
+      return { success: true, warning: 'Sent with redirect (data processed)' };
     }
 
     if (!response.ok && response.status !== 0) {
-      return { success: false, status: response.status, offline: true };
+      return { success: false, warning: `HTTP Status ${response.status}` };
     }
 
     const result = await response.json().catch(() => ({ success: true }));
-    return result;
+    return result || { success: true };
   } catch (err) {
-    console.warn('Failed to post to Google Sheets (local copy preserved):', err);
+    console.warn('Handled postGoogleSheetsData exception (UI non-blocking):', err);
     return { success: false, error: err };
   }
 };

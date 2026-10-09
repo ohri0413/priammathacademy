@@ -56,6 +56,8 @@ export default function App() {
   const [syncStatusText, setSyncStatusText] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const isSyncingRef = useRef<boolean>(false);
+  const deletedAssignmentIdsRef = useRef<Set<string>>(new Set());
+  const deletedStudentIdsRef = useRef<Set<string>>(new Set());
 
   // Student Modal state
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
@@ -71,7 +73,7 @@ export default function App() {
     studentName: string;
   }>({ isOpen: false, studentId: '', studentName: '' });
 
-  // Sync data from Google Sheets (GET request)
+  // Sync data from Google Sheets (GET request) with Smart Non-destructive Merge
   const syncFromGoogleSheets = useCallback(
     async (options?: { customUrl?: string; isSilent?: boolean }): Promise<boolean> => {
       if (options?.customUrl) {
@@ -94,19 +96,85 @@ export default function App() {
       try {
         const data = await fetchGoogleSheetsData();
         if (data) {
+          // Smart merge students without blowing away recent local edits
           if (Array.isArray(data.students) && data.students.length > 0) {
             const safeStudents = data.students.map(sanitizeStudent);
-            setStudents(safeStudents);
-            saveStudents(safeStudents);
+            setStudents((prev) => {
+              const mergedMap = new Map<string, Student>();
+              // Keep existing local students first
+              prev.forEach((s) => mergedMap.set(s.id, s));
+
+              safeStudents.forEach((remote) => {
+                if (deletedStudentIdsRef.current.has(remote.id)) return;
+                const local = mergedMap.get(remote.id);
+                if (!local) {
+                  mergedMap.set(remote.id, remote);
+                } else {
+                  const rTime = remote.updatedAt ? new Date(remote.updatedAt).getTime() : 0;
+                  const lTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
+                  // Only replace if remote is strictly newer
+                  if (rTime > lTime) {
+                    mergedMap.set(remote.id, remote);
+                  }
+                }
+              });
+
+              const finalStudents = Array.from(mergedMap.values());
+              saveStudents(finalStudents);
+              return finalStudents;
+            });
           }
+
+          // Smart merge assignments: never discard local unsynced or newly entered assignments!
           if (Array.isArray(data.assignments)) {
             const safeAssignments = data.assignments.map(sanitizeAssignment);
-            setAssignments(safeAssignments);
-            saveAssignments(safeAssignments);
+            setAssignments((prev) => {
+              const mergedMap = new Map<string, AssignmentRecord>();
+              // Keep existing local assignments (the source of immediate truth)
+              prev.forEach((a) => mergedMap.set(a.id, a));
+
+              safeAssignments.forEach((remote) => {
+                // If deleted locally, don't resurrect
+                if (deletedAssignmentIdsRef.current.has(remote.id)) return;
+
+                const existingById = mergedMap.get(remote.id);
+                const existingBySlot = Array.from(mergedMap.values()).find(
+                  (l) => l.studentId === remote.studentId && l.date === remote.date && l.mode === remote.mode
+                );
+                const local = existingById || existingBySlot;
+
+                if (!local) {
+                  // New assignment from sheet/other user
+                  mergedMap.set(remote.id, remote);
+                } else {
+                  const rTime = remote.updatedAt ? new Date(remote.updatedAt).getTime() : 0;
+                  const lTime = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
+                  // Only update if remote is strictly newer than current local
+                  if (rTime > lTime) {
+                    if (existingBySlot && existingBySlot.id !== remote.id) {
+                      mergedMap.delete(existingBySlot.id);
+                    }
+                    mergedMap.set(remote.id, remote);
+                  }
+                }
+              });
+
+              const finalAssignments = Array.from(mergedMap.values());
+              saveAssignments(finalAssignments);
+              return finalAssignments;
+            });
           }
+
           if (Array.isArray(data.logs) && data.logs.length > 0) {
-            setLogs(data.logs);
-            saveLogs(data.logs);
+            setLogs((prev) => {
+              const logIds = new Set(prev.map((l) => l.id));
+              const newLogs = data.logs.filter((l) => !logIds.has(l.id));
+              const combined = [...prev, ...newLogs].sort(
+                (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+              ).slice(0, 500);
+              saveLogs(combined);
+              return combined;
+            });
           }
           if (data.settings && data.settings.academyName) {
             setSettings(data.settings);
@@ -232,10 +300,8 @@ export default function App() {
       setIsSyncing(true);
       setSyncStatusText('구글 시트에 학생 정보 동기화 중...');
       postGoogleSheetsData('saveStudent', targetStudent)
-        .then(async () => {
-          // 3. [데이터 등록 후 즉시 동기화] 즉시 시트 데이터를 다시 GET해와서 화면 목록 업데이트
-          await syncFromGoogleSheets({ isSilent: true });
-          setSyncStatusText('구글 시트 학생 저장 및 동기화 완료!');
+        .then(() => {
+          setSyncStatusText('구글 시트 학생 저장 완료!');
           setTimeout(() => setSyncStatusText(null), 2500);
         })
         .catch((e) => {
@@ -258,6 +324,7 @@ export default function App() {
   const confirmDeleteStudent = async () => {
     const id = deleteDialog.studentId;
     const name = deleteDialog.studentName;
+    deletedStudentIdsRef.current.add(id);
     const updatedList = students.filter((s) => s.id !== id);
     setStudents(updatedList);
     saveStudents(updatedList);
@@ -276,9 +343,7 @@ export default function App() {
       setSyncStatusText('구글 시트에서 학생 삭제 중...');
       try {
         await postGoogleSheetsData('deleteStudent', { id });
-        // 3. [데이터 등록 후 즉시 동기화]
-        await syncFromGoogleSheets({ isSilent: true });
-        setSyncStatusText('구글 시트 삭제 및 동기화 완료!');
+        setSyncStatusText('구글 시트 삭제 완료!');
         setTimeout(() => setSyncStatusText(null), 2500);
       } catch (e) {
         console.error('Google Sheets delete error:', e);
@@ -316,8 +381,6 @@ export default function App() {
       setIsSyncing(true);
       try {
         await postGoogleSheetsData('saveStudent', updatedStudent);
-        // 3. [데이터 등록 후 즉시 동기화]
-        await syncFromGoogleSheets({ isSilent: true });
         setSyncStatusText('선생님 정보 시트 반영 완료');
         setTimeout(() => setSyncStatusText(null), 2500);
       } catch (e) {
@@ -330,6 +393,9 @@ export default function App() {
 
   // Assignment Handlers
   const handleSaveAssignment = async (record: AssignmentRecord) => {
+    // Ensure this assignment is not marked as deleted
+    deletedAssignmentIdsRef.current.delete(record.id);
+
     const exists = assignments.some((a) => a.id === record.id);
     let updated: AssignmentRecord[];
 
@@ -353,15 +419,13 @@ export default function App() {
     setAssignments(updated);
     saveAssignments(updated);
 
-    // Google Sheets POST sync
+    // Google Sheets POST sync: safely save in background without overwriting local state
     if (isGasConfigured()) {
       setIsSyncing(true);
       setSyncStatusText('구글 시트에 과제 저장 중...');
       try {
         await postGoogleSheetsData('saveAssignment', record);
-        // 3. [데이터 등록 후 즉시 동기화] 즉시 시트 데이터를 다시 GET해와서 화면 목록 업데이트
-        await syncFromGoogleSheets({ isSilent: true });
-        setSyncStatusText('구글 시트 과제 저장 및 최신 동기화 완료!');
+        setSyncStatusText('구글 시트 과제 저장 완료!');
         setTimeout(() => setSyncStatusText(null), 2500);
       } catch (e) {
         console.error('Google Sheets assignment save error:', e);
@@ -374,6 +438,7 @@ export default function App() {
   };
 
   const handleDeleteAssignment = async (id: string, studentName: string) => {
+    deletedAssignmentIdsRef.current.add(id);
     const updated = assignments.filter((a) => a.id !== id);
     setAssignments(updated);
     saveAssignments(updated);
@@ -384,9 +449,7 @@ export default function App() {
       setSyncStatusText('구글 시트에서 과제 삭제 중...');
       try {
         await postGoogleSheetsData('deleteAssignment', { id });
-        // 3. [데이터 등록 후 즉시 동기화]
-        await syncFromGoogleSheets({ isSilent: true });
-        setSyncStatusText('구글 시트 과제 삭제 및 동기화 완료!');
+        setSyncStatusText('구글 시트 과제 삭제 완료!');
         setTimeout(() => setSyncStatusText(null), 2500);
       } catch (e) {
         console.error('Google Sheets assignment delete error:', e);
@@ -406,7 +469,8 @@ export default function App() {
       setIsSyncing(true);
       try {
         await postGoogleSheetsData('saveSettings', { settings: newSettings, teachers });
-        await syncFromGoogleSheets({ isSilent: true });
+        setSyncStatusText('구글 시트 설정 저장 완료!');
+        setTimeout(() => setSyncStatusText(null), 2500);
       } catch (e) {
         console.error('Google Sheets settings save error:', e);
       } finally {
@@ -423,7 +487,8 @@ export default function App() {
       setIsSyncing(true);
       try {
         await postGoogleSheetsData('saveSettings', { settings, teachers: newTeachers });
-        await syncFromGoogleSheets({ isSilent: true });
+        setSyncStatusText('구글 시트 선생님 목록 저장 완료!');
+        setTimeout(() => setSyncStatusText(null), 2500);
       } catch (e) {
         console.error('Google Sheets teachers save error:', e);
       } finally {

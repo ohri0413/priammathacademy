@@ -205,14 +205,14 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
         updatedAt: new Date().toISOString()
       };
 
+      await onSaveAssignment(recordToSave);
+
       dirtyStudentsRef.current.delete(student.id);
       setDrafts((prev) => {
         const next = { ...prev };
         delete next[student.id];
         return next;
       });
-
-      await onSaveAssignment(recordToSave);
       onLogActivity(
         draft.isAbsent ? 'ATTENDANCE' : 'ASSIGNMENT',
         draft.isAbsent ? '결석 처리' : (draft.id ? '과제 수정' : '과제 등록'),
